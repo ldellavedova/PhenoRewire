@@ -1,0 +1,88 @@
+<?xml version='1.0' encoding='utf-8'?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd"><key id="d2" for="edge" attr.name="cosine" attr.type="double"/>
+<key id="d1" for="node" attr.name="NPC#pathway" attr.type="string"/>
+<key id="d0" for="node" attr.name="consensus_annotation" attr.type="string"/>
+<graph edgedefault="undirected"><node id="F001">
+  <data key="d0">lactate</data>
+  <data key="d1">Organic acids</data>
+</node>
+<node id="F002">
+  <data key="d0">citrulline</data>
+  <data key="d1">Amino acids</data>
+</node>
+<node id="F003">
+  <data key="d0">glutamate</data>
+  <data key="d1">Amino acids</data>
+</node>
+<node id="F004">
+  <data key="d0">asparagine</data>
+  <data key="d1">Amino acids</data>
+</node>
+<node id="F005">
+  <data key="d0">adenosine</data>
+  <data key="d1">Nucleosides</data>
+</node>
+<node id="F006">
+  <data key="d0">AMP</data>
+  <data key="d1">Nucleotides</data>
+</node>
+<node id="F007">
+  <data key="d0">ADP</data>
+  <data key="d1">Nucleotides</data>
+</node>
+<node id="F008">
+  <data key="d0">ATP</data>
+  <data key="d1">Nucleotides</data>
+</node>
+<node id="F009">
+  <data key="d0">threonine</data>
+  <data key="d1">Amino acids</data>
+</node>
+<node id="F010">
+  <data key="d0">methionine</data>
+  <data key="d1">Amino acids</data>
+</node>
+<node id="F011">
+  <data key="d0">glutamine</data>
+  <data key="d1">Amino acids</data>
+</node>
+<node id="F012">
+  <data key="d1">Amino acids</data>
+</node>
+<edge source="F001" target="F002">
+  <data key="d2">0.91</data>
+</edge>
+<edge source="F002" target="F003">
+  <data key="d2">0.88</data>
+</edge>
+<edge source="F002" target="F010">
+  <data key="d2">0.73</data>
+</edge>
+<edge source="F003" target="F004">
+  <data key="d2">0.83</data>
+</edge>
+<edge source="F003" target="F009">
+  <data key="d2">0.71</data>
+</edge>
+<edge source="F004" target="F005">
+  <data key="d2">0.76</data>
+</edge>
+<edge source="F005" target="F006">
+  <data key="d2">0.79</data>
+</edge>
+<edge source="F006" target="F007">
+  <data key="d2">0.92</data>
+</edge>
+<edge source="F007" target="F008">
+  <data key="d2">0.87</data>
+</edge>
+<edge source="F009" target="F010">
+  <data key="d2">0.72</data>
+</edge>
+<edge source="F010" target="F011">
+  <data key="d2">0.74</data>
+</edge>
+<edge source="F011" target="F012">
+  <data key="d2">0.69</data>
+</edge>
+</graph></graphml>

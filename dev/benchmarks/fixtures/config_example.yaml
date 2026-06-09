@@ -1,0 +1,66 @@
+# PhenoRewire — self-contained example with more permissive thresholds
+# Run from the repo root:
+#   phenorewire --config dev/benchmarks/fixtures/config_example.yaml
+#
+# Results go to results/example/. See docs/tutorials/walkthrough.md for interpretation.
+
+DATA_MATRIX: "../../../data/feature_table.csv"
+METADATA:    "../../../data/metadata.csv"
+OUTDIR:      "../../../results/example"
+ANALYSIS_MODE: "phenotype"
+
+GROUP_DEFINITION:
+  Reference:
+    group_label: "reference"
+  Case:
+    group_label: "case"
+
+PHENO_GROUP_REF:  "Reference"
+PHENO_GROUP_CASE: "Case"
+
+FEATURE_ID_COL:  "feature_id"
+MZ_COL:          "mz"
+RT_COL:          "rt"
+NAME_COL:        "name"
+INTENSITY_REGEX: "^Sample_"
+
+META_SAMPLE_COL: "sample_id"
+META_TIME_COL:   null
+
+# Reproducibility
+RANDOM_SEED: 42
+
+# Preprocessing — permissive for this small dataset
+MIN_NONZERO_INTENSITY: 0.0
+MIN_PRESENCE_GLOBAL:   0.25
+LOG_TRANSFORM:         false   # intensities are already log-scale in this example
+NORM_METHOD:           "median"
+
+# Feature selection — use fewer permutations so the example runs quickly
+FDR_ALPHA:                    0.10
+N_PERMUTATIONS_PHENO:         200
+ADAPTIVE_SELECTION_THRESHOLDS: true
+SELECTION_MIN_FEATURES:        5
+SELECTION_FDR_ALPHA_CEILING:   0.20
+
+# Correlation network — permissive thresholds for this small 22-feature dataset
+CORR_ABS_THRESHOLD:       0.50
+CORR_FDR_ALPHA:           0.20
+REPORT_TOP_N:             10
+ADAPTIVE_NETWORK_THRESHOLDS: true
+NETWORK_MIN_EDGES:        2
+NETWORK_MAX_DENSITY:      0.60
+NETWORK_ABS_THRESHOLD_FLOOR: 0.30
+NETWORK_FDR_ALPHA_CEILING:   0.40
+# Hard stops set permissive for this small 22-feature synthetic example
+NETWORK_MIN_EDGES_HARD_STOP: 1
+NETWORK_MIN_NODES_HARD_STOP: 2
+MIN_FEATURES_HARD_STOP:      2
+
+TEMPORAL_CORRELATION:
+  enabled: false
+  phenotype: null
+  time_column: null
+  n_permutations: 200
+  fdr_alpha: 0.10
+  min_samples: 3

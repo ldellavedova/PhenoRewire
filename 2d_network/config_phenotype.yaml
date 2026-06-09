@@ -1,0 +1,77 @@
+# PhenoRewire 2D Network — phenotype comparison configuration
+#
+# Run from the repository root:
+#   python 2d_network/multilayer_2d_notebook.py --config 2d_network/config_phenotype.yaml
+#
+# Required inputs (place files in the input/ folders):
+#   top_graphml     : rewiring_network.graphml from PhenoRewire (triage/ folder)
+#   chemical_graphml: chemical similarity network (SpecReBoot or GNPS FBMN)
+#   annotation_table: CSV with feature annotations (consensus_annotation, NPC#pathway)
+#
+# All paths are resolved relative to this config file.
+
+input:
+  top_graphml:      ./input/PhenoRewire_input/rewiring_network.graphml
+  chemical_graphml: ./input/SpecReBoot_input/bootstrap_threshold_ModCosine.graphml
+  annotation_table: ./input/SpecReBoot_input/metabolite_table_filtered.csv
+  outdir:           ./output/phenotype_run
+
+# ── Analysis type ─────────────────────────────────────────────────────────────
+# "comparison" : two biological groups (phenotype mode)
+focus:
+  analysis_type: comparison
+
+  # Labels for the two states in the legend — replace with your group names
+  first_group_label:  Group_A
+  second_group_label: Group_B
+
+  # Colours for the two states (hex)
+  first_group_color:  "#4F81BD"     # blue
+  second_group_color: "#E67E22"     # orange
+
+  # Node size range (pt²) — scaled by rewiring_score
+  node_size_min: 150.0
+  node_size_max: 400.0
+
+  # If the rewiring network has >N nodes, keep the top fraction by rewiring_score
+  top_node_limit_before_prioritization: 60
+  keep_top_fraction: 0.5
+  remove_singletons: true
+
+
+comparison:
+  direction_attr: "direction"
+  blue_group: "Group_A"
+  red_group:  "Group_B"
+
+# ── Chemical layer ────────────────────────────────────────────────────────────
+chemical:
+  pathway_attr:          "NPC#pathway"
+  annotation_label_attr: "consensus_annotation"
+  label_max_count:       14
+  matched_size:          250.0
+  neighbor_size:         100.0
+  neighbor_annotated_size: 140.0
+  max_nodes_before_neighbor_pruning: 40
+
+# ── Layout ────────────────────────────────────────────────────────────────────
+layout:
+  seed: 42
+
+# ── Titles and panels ─────────────────────────────────────────────────────────
+titles:
+  top:    "Phenotype rewired network"
+  bottom: "Molecular network"
+  show:   true
+
+# ── Output ────────────────────────────────────────────────────────────────────
+output:
+  basename:     phenotype_2d     # output file prefix
+  figure_width:  24
+  figure_height: 16
+  dpi:           300
+  write_png:     true
+  write_svg:     true
+  write_pdf:     true
+  write_summary: true
+  write_caption: true

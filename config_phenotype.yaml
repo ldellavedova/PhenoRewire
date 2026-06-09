@@ -1,0 +1,73 @@
+# Example configuration for a phenotype-vs-phenotype comparison.
+# Replace the placeholder paths and group filters with your own dataset.
+
+DATA_MATRIX: "data/feature_table.csv"
+METADATA: "data/metadata.csv"
+OUTDIR: "results/phenotype_example"
+ANALYSIS_MODE: "phenotype"
+
+GROUP_DEFINITION:
+  Reference:
+    group_label: "reference"
+  Case:
+    group_label: "case"
+
+PHENO_GROUP_REF: "Reference"
+PHENO_GROUP_CASE: "Case"
+
+TIMEPOINT_T1: 3
+TIMEPOINT_T2: 6
+
+FEATURE_ID_COL: "feature_id"
+MZ_COL: "mz"
+RT_COL: "rt"
+NAME_COL: "name"
+INTENSITY_REGEX: "^Sample_"
+
+META_SAMPLE_COL: "sample_id"
+META_TIME_COL: "timepoint"
+
+MIN_NONZERO_INTENSITY: 1
+MIN_PRESENCE_GLOBAL: 0.35
+LOG_TRANSFORM: true
+NORM_METHOD: "median"
+
+FDR_ALPHA: 0.05
+N_PERMUTATIONS_PHENO: 1000
+ADAPTIVE_SELECTION_THRESHOLDS: true
+SELECTION_MIN_FEATURES: 5
+SELECTION_FDR_ALPHA_CEILING: 0.10
+
+CORR_ABS_THRESHOLD: 0.70
+CORR_FDR_ALPHA: 0.05
+REPORT_TOP_N: 15
+ADAPTIVE_NETWORK_THRESHOLDS: true
+NETWORK_MIN_EDGES: 3
+NETWORK_MAX_DENSITY: 0.25
+NETWORK_ABS_THRESHOLD_FLOOR: 0.50
+NETWORK_FDR_ALPHA_CEILING: 0.20
+
+# Hard stops — set permissive here so the included example data runs out of the box.
+# For real study data with many samples you can raise these to protect against
+# degenerate network solutions (e.g. NETWORK_MIN_EDGES_HARD_STOP: 10).
+NETWORK_MIN_EDGES_HARD_STOP: 1
+NETWORK_MIN_NODES_HARD_STOP: 2
+MIN_FEATURES_HARD_STOP: 2
+
+TEMPORAL_CORRELATION:
+  enabled: false
+  phenotype: null
+  time_column: null
+  n_permutations: 1000
+  fdr_alpha: 0.05
+  min_samples: 3
+
+# Optional 2D molecular network annotation
+# The bundled demo molecular network matches the example feature IDs in data/feature_table.csv,
+# so you can run:
+#   phenorewire --config config_phenotype.yaml --run-2dnetwork
+SPECREBOOT_NETWORK: "data/example_molecular_network.graphml"
+PHENOREWIRE_NETWORK: null
+MN_HOP_DEPTH: 2
+MN_MIN_COSINE: 0.70
+ANNOTATION_TOP_N: 10

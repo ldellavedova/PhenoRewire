@@ -1,0 +1,30 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install package and dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Smoke test phenotype CLI
+        run: phenorewire --config config_phenotype.yaml
+      - name: Smoke test 2D annotation CLI
+        run: phenorewire --config config_phenotype.yaml --run-2dnetwork
+      - name: Run targeted 2D unit tests
+        run: python -m pytest -q dev/tests/unit/test_2dnetwork.py
+      - name: Run full test suite
+        run: pytest dev/tests/

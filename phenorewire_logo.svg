@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 300" width="680" height="300">
+  <defs>
+    <style>
+      .logo-pheno { font-family: 'Georgia', 'Times New Roman', serif; font-size: 54px; font-weight: 400; fill: #2C3E6B; }
+      .logo-rewire { font-family: 'Georgia', 'Times New Roman', serif; font-size: 54px; font-weight: 700; font-style: italic; fill: #2A8C8C; letter-spacing: -1px; }
+    </style>
+  </defs>
+
+  <!-- White background -->
+  <rect width="680" height="300" fill="white"/>
+
+  <!-- P: spine + rounded bump -->
+  <path d="M 288 25 L 288 155" stroke="#2C3E6B" stroke-width="13" stroke-linecap="round" fill="none"/>
+  <path d="M 288 25 C 288 25 360 20 360 55 C 360 90 288 88 288 88" stroke="#2C3E6B" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+
+  <!-- R: bump outline slightly larger (teal) + leg -->
+  <path d="M 288 25 C 295 16 382 14 382 55 C 382 96 300 97 288 90" stroke="#2A8C8C" stroke-width="8.5" stroke-linecap="round" fill="none"/>
+  <path d="M 355 93 L 400 155" stroke="#2A8C8C" stroke-width="13" stroke-linecap="round" fill="none"/>
+
+  <!-- Network edges (disegnate PRIMA dei pallini ancora così escono da dietro) -->
+  <line x1="288" y1="25"  x2="228" y2="8"   stroke="#2C3E6B" stroke-width="1.6"/>
+  <line x1="288" y1="25"  x2="215" y2="42"  stroke="#2C3E6B" stroke-width="1.6"/>
+  <line x1="288" y1="25"  x2="238" y2="62"  stroke="#2C3E6B" stroke-width="1.4"/>
+  <line x1="365" y1="27"  x2="418" y2="10"  stroke="#2A8C8C" stroke-width="1.6"/>
+  <line x1="365" y1="27"  x2="432" y2="40"  stroke="#2A8C8C" stroke-width="1.5"/>
+  <line x1="380" y1="55"  x2="438" y2="46"  stroke="#2A8C8C" stroke-width="1.6"/>
+  <line x1="380" y1="55"  x2="442" y2="70"  stroke="#2A8C8C" stroke-width="1.4"/>
+  <line x1="288" y1="90"  x2="228" y2="78"  stroke="#2C3E6B" stroke-width="1.6"/>
+  <line x1="288" y1="90"  x2="220" y2="108" stroke="#2C3E6B" stroke-width="1.4"/>
+  <line x1="288" y1="155" x2="235" y2="170" stroke="#2C3E6B" stroke-width="1.4"/>
+  <line x1="288" y1="155" x2="248" y2="192" stroke="#2C3E6B" stroke-width="1.3"/>
+  <line x1="400" y1="155" x2="448" y2="148" stroke="#2A8C8C" stroke-width="1.6"/>
+  <line x1="400" y1="155" x2="440" y2="175" stroke="#2A8C8C" stroke-width="1.5"/>
+  <line x1="400" y1="155" x2="382" y2="192" stroke="#2A8C8C" stroke-width="1.3"/>
+
+  <!-- Outer nodes — navy -->
+  <circle cx="228" cy="8"   r="6" fill="#2C3E6B"/>
+  <circle cx="215" cy="42"  r="5" fill="#2C3E6B"/>
+  <circle cx="238" cy="62"  r="5" fill="#2C3E6B"/>
+  <circle cx="228" cy="78"  r="5" fill="#2C3E6B"/>
+  <circle cx="220" cy="108" r="4" fill="#2C3E6B"/>
+  <circle cx="235" cy="170" r="5" fill="#2C3E6B"/>
+  <circle cx="248" cy="192" r="4" fill="#2C3E6B"/>
+
+  <!-- Outer nodes — teal -->
+  <circle cx="418" cy="10"  r="6" fill="#2A8C8C"/>
+  <circle cx="432" cy="40"  r="5" fill="#2A8C8C"/>
+  <circle cx="438" cy="46"  r="5" fill="#2A8C8C"/>
+  <circle cx="442" cy="70"  r="5" fill="#2A8C8C"/>
+  <circle cx="448" cy="148" r="6" fill="#2A8C8C"/>
+  <circle cx="440" cy="175" r="5" fill="#2A8C8C"/>
+  <circle cx="382" cy="192" r="4" fill="#2A8C8C"/>
+
+  <!-- Key anchor nodes (disegnati DOPO le linee così le coprono al punto di partenza) -->
+  <circle cx="288" cy="25"  r="10" fill="#2C3E6B"/>
+  <circle cx="288" cy="90"  r="12" fill="#D4722A"/>
+  <circle cx="288" cy="155" r="9"  fill="#2C3E6B"/>
+  <circle cx="365" cy="27"  r="9"  fill="#2A8C8C"/>
+  <circle cx="380" cy="55"  r="10" fill="#2C3E6B"/>
+  <circle cx="355" cy="93"  r="9"  fill="#2A8C8C"/>
+  <circle cx="400" cy="155" r="10" fill="#2A8C8C"/>
+
+  <!-- Text -->
+  <text y="240" text-anchor="middle" x="340">
+    <tspan class="logo-pheno">Pheno</tspan><tspan class="logo-rewire">Rewire</tspan>
+  </text>
+</svg>

@@ -1,0 +1,23 @@
+# Normalise line endings to LF in the repo; let git convert on checkout
+* text=auto
+
+# Source and config files -- always LF
+*.py   text eol=lf
+*.md   text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.txt  text eol=lf
+*.cff  text eol=lf
+*.cfg  text eol=lf
+*.ini  text eol=lf
+*.sh   text eol=lf
+*.csv  text eol=lf
+*.graphml text eol=lf
+
+# Binary files -- do not diff or mangle
+*.png  binary
+*.svg  binary
+*.pdf  binary
+*.ico  binary

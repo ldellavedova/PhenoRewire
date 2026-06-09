@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phenorewire"
+version = "0.1.0"
+description = "Phenotype-aware metabolomics rewiring and network dynamics tool"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+  { name = "Larissa Della Vedova", email = "l.dellavedova@uu.nl" },
+]
+dependencies = [
+  "networkx>=2.8",
+  "numpy>=1.23",
+  "pandas>=1.5",
+  "pydantic>=2.0",
+  "PyYAML>=6.0",
+  "scipy>=1.9",
+  "statsmodels>=0.13",
+  "tqdm>=4.64",
+  "joblib>=1.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/ldellavedova/PhenoRewire"
+Documentation = "https://github.com/ldellavedova/PhenoRewire/tree/main/docs"
+"Bug Tracker" = "https://github.com/ldellavedova/PhenoRewire/issues"
+
+[project.scripts]
+phenorewire = "phenorewire.cli:main"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0",
+  "scikit-learn>=1.1",
+  "nbconvert>=7.0",
+]
+viz = [
+  "matplotlib>=3.7",
+  "pyvis>=0.3",
+]
+benchmark = [
+  "scikit-learn>=1.1",
+  "matplotlib>=3.7",
+]
+all = [
+  "matplotlib>=3.7",
+  "pyvis>=0.3",
+  "scikit-learn>=1.1",
+  "nbconvert>=7.0",
+  "joblib>=1.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["dev/tests"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["phenorewire*"]

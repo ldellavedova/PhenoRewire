@@ -1,0 +1,64 @@
+# Template configuration for a temporal comparison within one phenotype.
+# Replace the placeholder paths and group filters with your own dataset.
+#
+# Note: the bundled synthetic data in data/ was designed for phenotype comparisons
+# and does not contain a meaningful temporal signal. This config is intended as a
+# starting template for your own time-course dataset, not as a runnable demo.
+# For a runnable demo, use config_phenotype.yaml instead.
+
+DATA_MATRIX: "data/feature_table.csv"
+METADATA: "data/metadata.csv"
+OUTDIR: "results/temporal_example"
+ANALYSIS_MODE: "temporal"
+
+GROUP_DEFINITION:
+  TargetPhenotype:
+    group_label: "reference"   # change to your phenotype of interest
+
+TIMEPOINT_T1: 1
+TIMEPOINT_T2: 2
+
+FEATURE_ID_COL: "feature_id"
+MZ_COL: "mz"
+RT_COL: "rt"
+NAME_COL: "name"
+INTENSITY_REGEX: "^Sample_"
+
+META_SAMPLE_COL: "sample_id"
+META_TIME_COL: "timepoint"
+
+MIN_NONZERO_INTENSITY: 1
+MIN_PRESENCE_GLOBAL: 0.50
+LOG_TRANSFORM: true
+NORM_METHOD: "median"
+
+FDR_ALPHA: 0.05
+N_PERMUTATIONS_PHENO: 1000
+ADAPTIVE_SELECTION_THRESHOLDS: true
+SELECTION_MIN_FEATURES: 5
+SELECTION_FDR_ALPHA_CEILING: 0.10
+
+CORR_ABS_THRESHOLD: 0.80
+CORR_FDR_ALPHA: 0.01
+REPORT_TOP_N: 15
+ADAPTIVE_NETWORK_THRESHOLDS: true
+NETWORK_MIN_EDGES: 3
+NETWORK_MAX_DENSITY: 0.25
+NETWORK_ABS_THRESHOLD_FLOOR: 0.50
+NETWORK_FDR_ALPHA_CEILING: 0.20
+
+TEMPORAL_CORRELATION:
+  enabled: true
+  phenotype: "TargetPhenotype"
+  time_column: "timepoint"     # must match META_TIME_COL above
+  n_permutations: 1000
+  fdr_alpha: 0.01
+  min_samples: 3
+
+# Optional 2D molecular network annotation
+# The bundled demo molecular network matches the example feature IDs in data/feature_table.csv.
+SPECREBOOT_NETWORK: "data/example_molecular_network.graphml"
+PHENOREWIRE_NETWORK: null
+MN_HOP_DEPTH: 2
+MN_MIN_COSINE: 0.70
+ANNOTATION_TOP_N: 10

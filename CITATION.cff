@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: >-
+  PhenoRewire has not yet been formally published.
+  If you use this software in a manuscript, please cite the repository
+  directly until a formal citation (DOI, paper) is available.
+title: "PhenoRewire: phenotype-aware metabolomics network rewiring"
+abstract: >-
+  PhenoRewire is a Python command-line tool for detecting network rewiring
+  in metabolomics data. It identifies metabolite features whose correlation
+  neighbourhood reorganised between two biological states — a complementary
+  signal to differential abundance analysis.
+authors:
+  - family-names: "Della Vedova"
+    given-names: "Larissa"
+    email: "l.dellavedova@uu.nl"
+version: "0.1.0"
+date-released: "2026-06-09"
+url: "https://github.com/ldellavedova/PhenoRewire"
+license: MIT
+# TODO: add doi once the repository is archived on Zenodo or the manuscript is published
