@@ -14,6 +14,16 @@ There are two related but different 2D workflows in this repository:
    - produces the publication-style two-layer figure
    - is useful after you already have the PhenoRewire rewiring GraphML and a molecular network GraphML
 
+> **The two workflows take different config files, and they are not interchangeable.**
+>
+> | File | Used by | Describes |
+> |------|---------|-----------|
+> | `config_phenotype.yaml`, `config_temporal.yaml` (repo root) | `phenorewire --config ...` | the analysis: input tables, groups, thresholds |
+> | `2d_network/2d_figure_phenotype.yaml`, `2d_network/2d_figure_temporal.yaml` | `multilayer_2d_notebook.py --config ...` | the figure: layout, colours, labels, output format |
+>
+> Passing one where the other is expected will fail with a validation error, not
+> produce a wrong result.
+
 ## Package-integrated annotation workflow
 
 Use the main CLI when you want CSV outputs such as:
@@ -47,7 +57,7 @@ pip install "phenorewire[viz]"
 Then run from the repository root:
 
 ```bash
-python 2d_network/multilayer_2d_notebook.py --config 2d_network/config_phenotype.yaml
+python 2d_network/multilayer_2d_notebook.py --config 2d_network/2d_figure_phenotype.yaml
 ```
 
 The standalone script expects:

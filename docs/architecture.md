@@ -272,7 +272,7 @@ annotation_confidence = annotated_neighbours / total_reachable_neighbours
 Run:
 
 ```bash
-python 2d_network/multilayer_2d_notebook.py --config 2d_network/config_phenotype.yaml
+python 2d_network/multilayer_2d_notebook.py --config 2d_network/2d_figure_phenotype.yaml
 ```
 
 This workflow is optional and is mainly for generating the two-layer figure. It is separate from the package-integrated CSV annotation workflow.

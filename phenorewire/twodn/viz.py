@@ -54,7 +54,7 @@ def plot_rewiring_network(
         G = G.to_undirected()
 
     if G.number_of_nodes() == 0:
-        logger.warning("Rewiring network is empty — skipping plot.")
+        logger.warning("Rewiring network is empty - skipping plot.")
         return
 
     # Optionally subset to top_n nodes by rewiring_score

@@ -719,7 +719,7 @@ def build_notebook_multilayer(
     top_lookup = {node.original_id: node_id for node_id, node in top_nodes.items()}
 
     if top_graph.number_of_nodes() == 0:
-        logger.warning("No nodes remain in the top layer after prioritization — check remove_singletons and keep_top_fraction settings.")
+        logger.warning("No nodes remain in the top layer after prioritization - check remove_singletons and keep_top_fraction settings.")
         return {
             "top_nodes": 0, "top_edges": 0, "bottom_nodes": 0, "bottom_edges": 0,
             "matched_nodes": 0, "direct_neighbors": 0,
@@ -976,9 +976,31 @@ def load_yaml_config(path: Path | str) -> dict[str, Any]:
     return data
 
 
+_REQUIRED_INPUT_KEYS = ("top_graphml", "chemical_graphml", "annotation_table", "outdir")
+
+
 def run_from_yaml(config_path: Path | str) -> dict[str, Any]:
     data = load_yaml_config(config_path)
     input_cfg = data.get("input", {})
+
+    missing = [key for key in _REQUIRED_INPUT_KEYS if not input_cfg.get(key)]
+    if missing:
+        # The most common cause is handing this script a pipeline config: the two
+        # config formats look similar but are not interchangeable.
+        looks_like_pipeline = any(key in data for key in ("DATA_MATRIX", "GROUP_DEFINITION", "OUTDIR"))
+        hint = (
+            "\n\nThis looks like a PhenoRewire *pipeline* config (it has DATA_MATRIX / "
+            "GROUP_DEFINITION / OUTDIR). This script takes a *figure* config instead: "
+            "see 2d_network/2d_figure_phenotype.yaml for a template."
+            if looks_like_pipeline
+            else "\n\nSee 2d_network/2d_figure_phenotype.yaml for a template."
+        )
+        raise ValueError(
+            f"Config '{config_path}' is missing required input key(s): {missing}.\n"
+            f"Expected a top-level 'input:' block with {list(_REQUIRED_INPUT_KEYS)}."
+            + hint
+        )
+
     config = dict(data)
     config.pop("input", None)
     return build_notebook_multilayer(

@@ -1,7 +1,7 @@
 # PhenoRewire 2D Network — temporal comparison configuration
 #
 # Run from the repository root:
-#   python 2d_network/multilayer_2d_notebook.py --config 2d_network/config_temporal.yaml
+#   python 2d_network/multilayer_2d_notebook.py --config 2d_network/2d_figure_temporal.yaml
 #
 # Required inputs (place files in the input/ folders):
 #   top_graphml     : rewiring_network.graphml from PhenoRewire temporal run (triage/ folder)

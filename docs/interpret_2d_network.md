@@ -212,7 +212,7 @@ Check:
 The repository also contains a standalone figure-generation script:
 
 ```bash
-python 2d_network/multilayer_2d_notebook.py --config 2d_network/config_phenotype.yaml
+python 2d_network/multilayer_2d_notebook.py --config 2d_network/2d_figure_phenotype.yaml
 ```
 
 Use this only when you want the publication-style two-layer figure.
