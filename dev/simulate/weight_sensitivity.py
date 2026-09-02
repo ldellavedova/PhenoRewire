@@ -49,7 +49,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score
 
-from phenorewire.stats import fast_spearman_permutation_test
+from phenorewire.stats import spearman_permutation_test
 from phenorewire.networks import correlation_network, compute_network_metrics
 from phenorewire.triage import export_network_triage
 
@@ -157,7 +157,7 @@ def compute_triage_scores(
     mat = X.values.astype(float)
 
     # Feature selection: permutation Spearman
-    r_obs, p_emp = fast_spearman_permutation_test(mat, y, n_permutations=200, seed=seed)
+    r_obs, p_emp = spearman_permutation_test(mat, y, n_permutations=200, seed=seed)
     _, qvals, _, _ = multipletests(p_emp, alpha=0.2, method="fdr_bh")
 
     rej, sel_meta = adaptive_fdr_selection(

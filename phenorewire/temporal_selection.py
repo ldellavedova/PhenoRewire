@@ -13,7 +13,7 @@ from statsmodels.stats.multitest import multipletests
 import logging
 
 from .utils import save_json
-from .stats import adaptive_fdr_selection, fast_spearman_permutation_test
+from .stats import adaptive_fdr_selection, spearman_permutation_test
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def temporal_selection(
     if n_perm < 10:
         raise ValueError("n_permutations must be >= 10 for stability.")
 
-    r_obs, p_emp = fast_spearman_permutation_test(
+    r_obs, p_emp = spearman_permutation_test(
         mat,
         np.asarray(time, dtype=float),
         n_permutations=n_perm,

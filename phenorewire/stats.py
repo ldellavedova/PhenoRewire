@@ -6,13 +6,29 @@ from __future__ import annotations
 from typing import Tuple
 
 import numpy as np
-from scipy.stats import spearmanr
+from scipy.stats import rankdata, spearmanr
 
-try:
-    from joblib import Parallel, delayed
-    _HAS_JOBLIB = True
-except ImportError:
-    _HAS_JOBLIB = False
+# Tolerance for the empirical p-value comparison.  With a discrete target (e.g. a
+# binary phenotype) many permuted correlations are *exactly* equal to the observed
+# one; comparing them with a bare ">=" makes the count depend on last-ulp floating
+# point noise, which differs across BLAS builds and SciPy versions.  Counting
+# near-equal values as ties keeps empirical p-values reproducible.
+_TIE_TOL = 1e-12
+
+# Upper bound on the permutation matrix materialised at once, in floats.
+_CHUNK_CELLS = 4_000_000
+
+
+def _rank_normalize(a: np.ndarray) -> np.ndarray:
+    """Center and L2-normalize rank rows so that ``a @ b`` is a Spearman rho.
+
+    Rows with zero variance (all values tied) become all-zero rows, which yield
+    rho = 0 downstream rather than a division by zero.
+    """
+    a = np.atleast_2d(np.asarray(a, dtype=float))
+    centered = a - a.mean(axis=1, keepdims=True)
+    norms = np.linalg.norm(centered, axis=1, keepdims=True)
+    return np.divide(centered, norms, out=np.zeros_like(centered), where=norms > 0)
 
 
 def _permute_one_feature(
@@ -21,7 +37,11 @@ def _permute_one_feature(
     n_perm: int,
     seed_i: int,
 ) -> tuple[float, float]:
-    """Compute observed Spearman r and empirical p-value for a single feature row."""
+    """Observed Spearman r and empirical p-value for a single feature row.
+
+    Fallback path, used only for rows containing NaN: pairwise deletion changes
+    the sample set per feature, so the vectorized form does not apply.
+    """
     if np.all(np.isnan(x)) or np.nanstd(x) == 0.0:
         return (np.nan, 1.0)
 
@@ -36,7 +56,7 @@ def _permute_one_feature(
         rp, _ = spearmanr(x, yp, nan_policy="omit")
         r_perm[j] = abs(float(rp)) if np.isfinite(rp) else 0.0
 
-    p = (float(np.sum(r_perm >= abs(float(r)))) + 1.0) / (float(n_perm) + 1.0)
+    p = (float(np.sum(r_perm >= abs(float(r)) - _TIE_TOL)) + 1.0) / (float(n_perm) + 1.0)
     return (float(r), p)
 
 
@@ -46,14 +66,26 @@ def spearman_permutation_test(
     *,
     n_permutations: int,
     seed: int,
-    n_jobs: int = -1,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Compute observed Spearman correlations and empirical p-values feature-by-feature.
+    Compute observed Spearman correlations and empirical p-values per feature.
 
-    Parallelised across features with joblib when available.  Each feature uses a
-    deterministic per-feature seed: seed_i = (seed + feature_index) % 2**31, so
-    results are fully reproducible regardless of n_jobs.
+    Spearman's rho is Pearson's r on ranks, so ranking once up front turns each
+    permutation into a matrix product instead of a fresh ``spearmanr`` call.
+    Permuting the target is equivalent to permuting its ranks (a permutation does
+    not change the tie structure), so the null distribution is unchanged.
+
+    Each feature draws from its own generator seeded with
+    ``seed_i = (seed + feature_index) % 2**31``, so results are reproducible and
+    independent of how features are chunked.
+
+    Rows containing NaN fall back to a per-feature ``spearmanr`` loop with
+    pairwise deletion.  Constant rows return ``(nan, 1.0)``.
+
+    Returns
+    -------
+    (r_obs, p_emp)
+        Observed rho per feature and its empirical two-sided p-value.
     """
     X = np.asarray(mat, dtype=float)
     y = np.asarray(target, dtype=float)
@@ -64,45 +96,53 @@ def spearman_permutation_test(
     n_perm = int(n_permutations)
     if n_perm < 10:
         raise ValueError("n_permutations must be >= 10 for stability.")
+    if np.isnan(y).any():
+        raise ValueError("target contains NaN; drop or impute those samples first.")
 
-    n_features = X.shape[0]
-    global_seed = int(seed)
+    n_features, n_samples = X.shape
+    r_obs = np.full(n_features, np.nan, dtype=float)
+    p_emp = np.ones(n_features, dtype=float)
 
-    seeds = [(global_seed + idx) % (2 ** 31) for idx in range(n_features)]
+    # Ranks of the target, centered and normalized once.
+    y_rank_norm = _rank_normalize(rankdata(y))[0]
 
-    if _HAS_JOBLIB and n_jobs != 1:
-        results = Parallel(n_jobs=n_jobs, prefer="threads")(
-            delayed(_permute_one_feature)(X[idx], y, n_perm, seeds[idx])
-            for idx in range(n_features)
+    with np.errstate(invalid="ignore"):
+        varying_rows = np.nanstd(X, axis=1) > 0
+    complete_rows = ~np.isnan(X).any(axis=1)
+    fast_rows = np.flatnonzero(complete_rows & varying_rows)
+    slow_rows = np.flatnonzero(~complete_rows & varying_rows)
+
+    if fast_rows.size:
+        X_rank_norm = _rank_normalize(np.apply_along_axis(rankdata, 1, X[fast_rows]))
+        r_fast = X_rank_norm @ y_rank_norm
+        r_obs[fast_rows] = r_fast
+
+        # Permutations are drawn per feature (to keep the per-feature seed) but the
+        # null correlations are computed as one matrix product per feature.
+        block = max(1, min(n_perm, _CHUNK_CELLS // max(n_samples, 1)))
+        for local_idx, feature_idx in enumerate(fast_rows):
+            rng = np.random.default_rng((int(seed) + int(feature_idx)) % (2 ** 31))
+            threshold = abs(float(r_fast[local_idx])) - _TIE_TOL
+            x_row = X_rank_norm[local_idx]
+            n_ge = 0
+            drawn = 0
+            while drawn < n_perm:
+                size = min(block, n_perm - drawn)
+                perms = np.empty((size, n_samples), dtype=float)
+                for j in range(size):
+                    perms[j] = rng.permutation(y_rank_norm)
+                n_ge += int(np.count_nonzero(np.abs(perms @ x_row) >= threshold))
+                drawn += size
+            p_emp[int(feature_idx)] = (float(n_ge) + 1.0) / (float(n_perm) + 1.0)
+
+    for feature_idx in slow_rows:
+        idx = int(feature_idx)
+        r_obs[idx], p_emp[idx] = _permute_one_feature(
+            X[idx], y, n_perm, (int(seed) + idx) % (2 ** 31)
         )
-    else:
-        results = [
-            _permute_one_feature(X[idx], y, n_perm, seeds[idx])
-            for idx in range(n_features)
-        ]
 
-    r_obs = np.array([r for r, _ in results], dtype=float)
-    p_emp = np.array([p for _, p in results], dtype=float)
     p_emp = np.where(np.isfinite(p_emp), p_emp, 1.0)
     return r_obs, p_emp
-
-
-def fast_spearman_permutation_test(
-    mat: np.ndarray,
-    target: np.ndarray,
-    *,
-    n_permutations: int,
-    seed: int,
-    n_jobs: int = -1,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Backward-compatible alias for spearman_permutation_test."""
-    return spearman_permutation_test(
-        mat,
-        target,
-        n_permutations=n_permutations,
-        seed=seed,
-        n_jobs=n_jobs,
-    )
 
 
 def adaptive_fdr_selection(

@@ -13,7 +13,7 @@ import pandas as pd
 from statsmodels.stats.multitest import multipletests
 
 from .utils import save_json
-from .stats import adaptive_fdr_selection, fast_spearman_permutation_test
+from .stats import adaptive_fdr_selection, spearman_permutation_test
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ def phenotype_selection(
     n_perm = int(n_permutations)
     if n_perm < 10:
         raise ValueError("n_permutations must be >= 10 for stability.")
-    r_obs, p_emp = fast_spearman_permutation_test(
+    r_obs, p_emp = spearman_permutation_test(
         mat,
         y_arr,
         n_permutations=n_perm,

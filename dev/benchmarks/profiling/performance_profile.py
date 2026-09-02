@@ -52,7 +52,7 @@ try:
 except ImportError:
     HAS_PSUTIL = False
 
-from phenorewire.stats import fast_spearman_permutation_test
+from phenorewire.stats import spearman_permutation_test
 from phenorewire.networks import correlation_network, compute_rewiring
 
 # ---------------------------------------------------------------------------
@@ -123,7 +123,7 @@ def _time_call(fn, *args, **kwargs) -> tuple[float, object]:
 def profile_permutation_test(mat: np.ndarray, y: np.ndarray) -> dict:
     gc.collect()
     t, _ = _time_call(
-        fast_spearman_permutation_test, mat, y,
+        spearman_permutation_test, mat, y,
         n_permutations=N_PERMUTATIONS, seed=SEED
     )
     return {"stage": "permutation_test", "t_s": round(t, 3)}
