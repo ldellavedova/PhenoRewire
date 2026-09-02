@@ -78,7 +78,6 @@ def _gen_matrix(n_features: int, n_per_group: int, seed: int) -> tuple[np.ndarra
     """Return (features x samples) matrix and binary group label y."""
     rng = np.random.default_rng(seed)
     n_signal = min(30, n_features // 5)
-    n_total = 2 * n_per_group
 
     C = np.eye(n_features)
     for i in range(n_signal):

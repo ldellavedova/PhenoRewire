@@ -1,1 +1,2 @@
-pytest
+# Development dependencies are declared in pyproject.toml under [dev].
+-e .[dev]

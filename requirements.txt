@@ -1,13 +1,9 @@
-networkx>=2.8
-numpy>=1.23
-pandas>=1.5
-pydantic>=2.0
-PyYAML>=6.0
-scipy>=1.9
-statsmodels>=0.13
-tqdm>=4.64
-joblib>=1.2
-
-# Optional extras are declared in pyproject.toml.
-# For plotting and the standalone 2D figure script, install:
-#   pip install "phenorewire[viz]"
+# Runtime dependencies are declared in pyproject.toml; this file installs them
+# via the package itself so the two can never drift apart.
+#
+#   pip install -r requirements.txt
+#
+# Optional extras:
+#   pip install "phenorewire[viz]"        # --plot-networks, standalone 2D figure script
+#   pip install "phenorewire[dev]"        # test suite and linter
+-e .

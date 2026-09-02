@@ -5,13 +5,7 @@ channels:
 dependencies:
   - python=3.11
   - pip
+  # Runtime dependencies live in pyproject.toml. Installing the package itself
+  # keeps this file from drifting out of sync with them.
   - pip:
-      - networkx>=2.8
-      - numpy>=1.23
-      - pandas>=1.5
-      - pydantic>=2.0
-      - PyYAML>=6.0
-      - scipy>=1.9
-      - statsmodels>=0.13
-      - tqdm>=4.64
-      - joblib>=1.2
+      - -e .

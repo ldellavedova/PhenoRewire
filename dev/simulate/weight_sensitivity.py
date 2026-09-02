@@ -54,7 +54,6 @@ from phenorewire.networks import correlation_network, compute_network_metrics
 from phenorewire.triage import export_network_triage
 
 import tempfile
-import os
 
 # ---------------------------------------------------------------------------
 # Simulation parameters

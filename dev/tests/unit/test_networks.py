@@ -1,6 +1,4 @@
-import numpy as np
 import pandas as pd
-import pytest
 
 from phenorewire.networks import (
     correlation_network,
@@ -84,8 +82,6 @@ def test_correlation_network_relaxes_thresholds_when_base_is_too_strict() -> Non
 
 
 def test_correlation_network_keeps_base_thresholds_when_signal_is_already_sufficient() -> None:
-    rng = np.random.default_rng(42)
-    base = np.linspace(1.0, 10.0, 10)
     X = pd.DataFrame(
         {
             "s0": [1, 1.2, 5, 5.1],

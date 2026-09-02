@@ -219,7 +219,8 @@ Full documentation is in [`docs/`](docs/README.md):
 | `data/` | Bundled synthetic example inputs |
 | `2d_network/` | Standalone two-layer figure workflow |
 | `dev/tests/` | Unit and integration test suite |
-| `dev/benchmarks/` | Performance benchmarking and simulation scripts |
+| `dev/benchmarks/` | Performance benchmarking scripts |
+| `dev/simulate/` | Parameter sensitivity simulations |
 | `config_phenotype.yaml` | Ready-to-run phenotype config template |
 | `config_temporal.yaml` | Ready-to-run temporal config template |
 | `environment.yml` | Conda environment specification |
@@ -228,7 +229,7 @@ Full documentation is in [`docs/`](docs/README.md):
 
 ## Citation
 
-> **Note:** PhenoRewire has not yet been formally published. If you use this tool in a manuscript, please check this repository for an updated citation. In the meantime, please cite the repository URL and version (v0.1.0).
+> **Note:** PhenoRewire has not yet been formally published. If you use this tool in a manuscript, please check this repository for an updated citation. In the meantime, please cite the repository URL and version (v0.1.1).
 
 <!-- TODO: add DOI and update this section when the manuscript is submitted or published -->
 

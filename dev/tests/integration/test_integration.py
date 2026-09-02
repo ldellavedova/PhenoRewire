@@ -12,13 +12,10 @@ intentional here to confirm the data is clean).
 
 from __future__ import annotations
 
-import textwrap
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
-import yaml
 
 from phenorewire.config import LeanConfig
 from phenorewire.run import run

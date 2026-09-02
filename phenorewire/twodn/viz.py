@@ -18,7 +18,6 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import networkx as nx
 import numpy as np
-import pandas as pd
 
 logger = logging.getLogger(__name__)
 

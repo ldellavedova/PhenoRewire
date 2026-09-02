@@ -164,8 +164,6 @@ def run_pipeline(
         selected_ids = X.index[order[:max(5, N_REWIRED)]].tolist()
 
     n_samples = X.shape[1]
-    n_ref = int((y == 0).sum())
-    n_case = int((y == 1).sum())
     samp_ids = X.columns.tolist()
     ref_samps = [samp_ids[i] for i in range(n_samples) if y[i] == 0]
     case_samps = [samp_ids[i] for i in range(n_samples) if y[i] == 1]

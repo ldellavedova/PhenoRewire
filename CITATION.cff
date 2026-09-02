@@ -13,7 +13,7 @@ authors:
   - family-names: "Della Vedova"
     given-names: "Larissa"
     email: "l.dellavedova@uu.nl"
-version: "0.1.0"
+version: "0.1.1"
 date-released: "2026-06-09"
 url: "https://github.com/ldellavedova/PhenoRewire"
 license: MIT
