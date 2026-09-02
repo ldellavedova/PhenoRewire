@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 import logging
@@ -786,34 +786,3 @@ def run(config: LeanConfig) -> None:
     )
 
     logger.info("Pipeline completed. OUTDIR = %s", outdir)
-
-
-def main(argv: list[str] | None = None) -> int:
-    import argparse
-
-    p = argparse.ArgumentParser(description="PhenoRewire: phenotype-aware metabolic rewiring and network dynamics")
-    p.add_argument("--config", required=True, help="Path to YAML config file")
-    p.add_argument("--log-level", default="INFO", help="DEBUG/INFO/WARNING/ERROR")
-    args = p.parse_args(argv)
-
-    _setup_logging(args.log_level)
-
-    cfg_path = Path(args.config)
-    if not cfg_path.exists():
-        raise FileNotFoundError(f"Config not found: {cfg_path}")
-
-    if hasattr(LeanConfig, "from_yaml"):
-        config = LeanConfig.from_yaml(cfg_path)
-    elif hasattr(LeanConfig, "from_file"):
-        config = LeanConfig.from_file(cfg_path)
-    else:
-        raise AttributeError("LeanConfig must implement from_yaml(...) or from_file(...) to load YAML configs.")
-
-    run(config)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-
-

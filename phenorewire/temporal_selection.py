@@ -1,19 +1,17 @@
 # ── PhenoRewire · Step 2b — Temporal feature selection ───────────────────────
 # Selects features associated with a continuous time variable via Spearman
 # correlation, empirical permutation test, and Benjamini-Hochberg FDR correction.
-# Reports directionality as higher abundance at one timepoint vs the other.
+# Directionality (which timepoint a feature is higher at) is added by run.py.
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Tuple
 
+import logging
 import numpy as np
 import pandas as pd
-from statsmodels.stats.multitest import multipletests
-import logging
 
-from .utils import save_json
-from .stats import adaptive_fdr_selection, spearman_permutation_test
+from .selection import run_permutation_selection
 
 logger = logging.getLogger(__name__)
 
@@ -31,73 +29,46 @@ def temporal_selection(
     seed: int = 42,
     min_features_hard_stop: int = 5,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, dict]:
-    outdir.mkdir(parents=True, exist_ok=True)
+    """
+    Time-driven feature selection via Spearman correlation with permutation-based empirical p-values.
+
+    Assumptions:
+      - X is features x samples (index = feature_id, columns = sample IDs)
+      - time is a numeric 1D array aligned to X columns order
+      - X is already preprocessed upstream
+
+    Outputs (in outdir):
+      - temporal_features_all.csv
+      - temporal_features_selected.csv
+      - temporal_selection_summary.json
+    """
     logger.info("Running temporal correlation selection...")
 
-    feats = X.index.astype(str).tolist()
-    mat = X.values.astype(float)
-    n_perm = int(n_permutations)
-    if n_perm < 10:
-        raise ValueError("n_permutations must be >= 10 for stability.")
-
-    r_obs, p_emp = spearman_permutation_test(
-        mat,
-        np.asarray(time, dtype=float),
-        n_permutations=n_perm,
-        seed=int(seed),
-    )
-
-    _, qvals, *_ = multipletests(p_emp, alpha=float(fdr_alpha_ceiling), method="fdr_bh")
-    rej, selection_meta = adaptive_fdr_selection(
-        qvals,
-        base_alpha=float(fdr_alpha),
-        adaptive=bool(adaptive_fdr),
-        min_selected=int(min_selected_features),
-        alpha_ceiling=float(fdr_alpha_ceiling),
-    )
-
-    n_selected = int(selection_meta["selected_feature_count"])
-    if n_selected < int(min_features_hard_stop):
-        adaptive_note = (
-            f"  Adaptive FDR relaxation was {'enabled' if adaptive_fdr else 'disabled'}; "
-            f"ceiling alpha = {fdr_alpha_ceiling}.\n"
-            if adaptive_fdr else
-            "  ADAPTIVE_SELECTION_THRESHOLDS is False; enable it or increase sample size.\n"
-        )
+    time_arr = np.asarray(time, dtype=float)
+    if time_arr.ndim != 1:
+        raise ValueError("time must be a 1D array.")
+    if time_arr.shape[0] != X.shape[1]:
         raise ValueError(
-            f"Temporal feature selection hard stop: only {n_selected} feature(s) passed FDR "
-            f"threshold (q <= {selection_meta['applied_fdr_alpha']:.4f}), fewer than "
-            f"MIN_FEATURES_HARD_STOP = {min_features_hard_stop}.\n"
-            + adaptive_note +
-            "  Consider: more time points, fewer features, a higher FDR alpha, or enabling "
-            "ADAPTIVE_SELECTION_THRESHOLDS."
+            f"time length ({time_arr.shape[0]}) must match number of samples in X ({X.shape[1]})."
         )
 
-    res = pd.DataFrame({
-        "feature_id": feats,
-        "r_time": r_obs,
-        "p_empirical": p_emp,
-        "q_time": qvals,
-        "significant": rej,
-    }).set_index("feature_id")
-
-    res_annot = res.join(feat_anno, how="left")
-    res_annot.to_csv(outdir / "temporal_features_all.csv")
-
-    selected = res_annot[res_annot["significant"]].copy()
-    selected.to_csv(outdir / "temporal_features_selected.csv")
-
-    summary = {
-        "n_features_total": int(len(feats)),
-        "n_features_selected": int(selected.shape[0]),
-        "fdr_alpha": float(fdr_alpha),
-        "applied_fdr_alpha": float(selection_meta["applied_fdr_alpha"]),
-        "adaptive_fdr_used": bool(selection_meta["adaptive_fdr_used"]),
-        "min_selected_target": int(selection_meta["min_selected_target"]),
-        "selected_at_base_alpha": int(selection_meta["selected_at_base_alpha"]),
-        "n_permutations": int(n_perm),
-    }
-    save_json(summary, outdir / "temporal_selection_summary.json")
-
-    logger.info(f"Temporal selection done. Selected {selected.shape[0]} features.")
-    return res_annot, selected, summary
+    return run_permutation_selection(
+        X,
+        time_arr,
+        feat_anno,
+        outdir,
+        mode="Temporal",
+        r_col="r_time",
+        q_col="q_time",
+        all_filename="temporal_features_all.csv",
+        selected_filename="temporal_features_selected.csv",
+        summary_filename="temporal_selection_summary.json",
+        n_permutations=n_permutations,
+        fdr_alpha=fdr_alpha,
+        adaptive_fdr=adaptive_fdr,
+        min_selected_features=min_selected_features,
+        fdr_alpha_ceiling=fdr_alpha_ceiling,
+        seed=seed,
+        min_features_hard_stop=min_features_hard_stop,
+        remedy="more time points, fewer features",
+    )
