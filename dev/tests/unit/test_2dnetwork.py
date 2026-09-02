@@ -11,7 +11,6 @@ Tests:
 """
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 import networkx as nx
@@ -173,7 +172,7 @@ def test_singleton_not_in_mn(graphml_files):
     assert not summary.empty
     row = summary[summary["feature_id"] == "NOTINMN"].iloc[0]
     assert row["n_mn_neighbors"] == 0
-    assert row["in_specreboot"] is False or row["in_specreboot"] == False
+    assert not row["in_specreboot"]
     assert row["annotation_confidence"] == 0.0
 
 

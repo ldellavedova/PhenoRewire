@@ -3,6 +3,8 @@
 </p>
 
 <p align="center">
+  <a href="https://doi.org/10.64898/2026.08.29.748013"><img alt="bioRxiv preprint" src="https://img.shields.io/badge/bioRxiv-10.64898%2F2026.08.29.748013-b31b1b"/></a>
+  <a href="CHANGELOG.md"><img alt="Version 0.1.1" src="https://img.shields.io/badge/version-0.1.1-blue"/></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"/></a>
   <a href="https://www.python.org/downloads/"><img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-blue"/></a>
   <a href="https://github.com/ldellavedova/PhenoRewire/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/ldellavedova/PhenoRewire/actions/workflows/tests.yml/badge.svg"/></a>
@@ -14,6 +16,8 @@
 
 PhenoRewire is a Python command-line tool for phenotype-aware metabolomics network rewiring. It identifies features whose correlation neighbourhood reorganises between biological states, providing a complementary signal to differential abundance and helping reveal coordinated metabolic shifts that standard analyses may miss.
 
+> **Preprint:** PhenoRewire was developed for, and applied in, [*Metabolite co-variation networks reveal keystone functions and an emergent pathogen state in the human urobiome*](https://doi.org/10.64898/2026.08.29.748013) (bioRxiv, 2026). See [Citation](#citation).
+>
 > **Status:** in active development. Intended for research use. Feedback, issues, and pull requests are welcome.
 
 ---
@@ -219,7 +223,8 @@ Full documentation is in [`docs/`](docs/README.md):
 | `data/` | Bundled synthetic example inputs |
 | `2d_network/` | Standalone two-layer figure workflow |
 | `dev/tests/` | Unit and integration test suite |
-| `dev/benchmarks/` | Performance benchmarking and simulation scripts |
+| `dev/benchmarks/` | Performance benchmarking scripts |
+| `dev/simulate/` | Parameter sensitivity simulations |
 | `config_phenotype.yaml` | Ready-to-run phenotype config template |
 | `config_temporal.yaml` | Ready-to-run temporal config template |
 | `environment.yml` | Conda environment specification |
@@ -228,9 +233,31 @@ Full documentation is in [`docs/`](docs/README.md):
 
 ## Citation
 
-> **Note:** PhenoRewire has not yet been formally published. If you use this tool in a manuscript, please check this repository for an updated citation. In the meantime, please cite the repository URL and version (v0.1.0).
+If you use PhenoRewire in your work, please cite the preprint:
 
-<!-- TODO: add DOI and update this section when the manuscript is submitted or published -->
+> Della Vedova, L., Bindas, A. J., Teixeira Dias, M., Brons, J. K., Fang, Z., Fernandes, A. M., Gallardo Molina, P., Giron-Villalobos, D., Hackl, T., Jansen, J., Wells, J. M., de Vos, M. G., Berkers, C. R., & van der Hooft, J. J. J. (2026). *Metabolite co-variation networks reveal keystone functions and an emergent pathogen state in the human urobiome.* bioRxiv. https://doi.org/10.64898/2026.08.29.748013
+
+```bibtex
+@article{DellaVedova2026PhenoRewire,
+  title   = {Metabolite co-variation networks reveal keystone functions and an
+             emergent pathogen state in the human urobiome},
+  author  = {Della Vedova, L. and Bindas, A. J. and Teixeira Dias, M. and
+             Brons, J. K. and Fang, Z. and Fernandes, A. M. and
+             Gallardo Molina, P. and Giron-Villalobos, D. and Hackl, T. and
+             Jansen, J. and Wells, J. M. and de Vos, M. G. and Berkers, C. R.
+             and van der Hooft, J. J. J.},
+  journal = {bioRxiv},
+  year    = {2026},
+  doi     = {10.64898/2026.08.29.748013},
+  url     = {https://www.biorxiv.org/content/10.64898/2026.08.29.748013v1}
+}
+```
+
+To cite a specific version of the software itself, use the **Cite this repository**
+button in the sidebar, or the metadata in [`CITATION.cff`](CITATION.cff). This
+documentation describes v0.1.1.
+
+<!-- TODO: replace the preprint entry with the journal reference once the paper is published -->
 
 ---
 

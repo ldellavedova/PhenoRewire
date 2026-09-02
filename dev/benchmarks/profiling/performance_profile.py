@@ -52,7 +52,7 @@ try:
 except ImportError:
     HAS_PSUTIL = False
 
-from phenorewire.stats import fast_spearman_permutation_test
+from phenorewire.stats import spearman_permutation_test
 from phenorewire.networks import correlation_network, compute_rewiring
 
 # ---------------------------------------------------------------------------
@@ -78,7 +78,6 @@ def _gen_matrix(n_features: int, n_per_group: int, seed: int) -> tuple[np.ndarra
     """Return (features x samples) matrix and binary group label y."""
     rng = np.random.default_rng(seed)
     n_signal = min(30, n_features // 5)
-    n_total = 2 * n_per_group
 
     C = np.eye(n_features)
     for i in range(n_signal):
@@ -123,7 +122,7 @@ def _time_call(fn, *args, **kwargs) -> tuple[float, object]:
 def profile_permutation_test(mat: np.ndarray, y: np.ndarray) -> dict:
     gc.collect()
     t, _ = _time_call(
-        fast_spearman_permutation_test, mat, y,
+        spearman_permutation_test, mat, y,
         n_permutations=N_PERMUTATIONS, seed=SEED
     )
     return {"stage": "permutation_test", "t_s": round(t, 3)}

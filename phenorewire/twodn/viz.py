@@ -1,13 +1,23 @@
 """
 Visualization helpers for PhenoRewire network outputs.
 
-Requires: matplotlib, pyvis (optional for interactive HTML).
+Requires matplotlib (hard dependency of this module) and pyvis (optional, for the
+interactive HTML plot).  matplotlib is imported at module level on purpose: callers
+guard ``import phenorewire.twodn.viz`` with ``except ImportError`` to tell the user
+to install the ``viz`` extra, and a lazy import inside the function would defeat that.
 """
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import networkx as nx
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -31,18 +41,6 @@ def plot_rewiring_network(
     output_path  : stem path (without extension); .png and .html are appended
     top_n        : max nodes to display for readability
     """
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        import matplotlib.colors as mcolors
-        import networkx as nx
-        import numpy as np
-        import pandas as pd
-    except ImportError as e:
-        logger.error("plot_rewiring_network requires matplotlib and networkx: %s", e)
-        return
-
     graphml_path = Path(graphml_path)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -56,7 +54,7 @@ def plot_rewiring_network(
         G = G.to_undirected()
 
     if G.number_of_nodes() == 0:
-        logger.warning("Rewiring network is empty — skipping plot.")
+        logger.warning("Rewiring network is empty - skipping plot.")
         return
 
     # Optionally subset to top_n nodes by rewiring_score
@@ -134,9 +132,8 @@ def plot_rewiring_network(
     plt.close(fig)
     logger.info("Saved PNG: %s", png_path)
 
-    # Interactive HTML via pyvis (optional)
+    # Interactive HTML via pyvis (optional extra)
     try:
-        from pyvis.network import Network
         _plot_interactive(G, score_map, triage_map, output_path.with_suffix(".html"))
     except ImportError:
         logger.debug("pyvis not installed — skipping interactive HTML plot.")
@@ -144,7 +141,6 @@ def plot_rewiring_network(
 
 def _plot_interactive(G, score_map: dict, triage_map: dict, html_path: Path) -> None:
     from pyvis.network import Network
-    import networkx as nx
 
     nt = Network(height="750px", width="100%", bgcolor="#1a1a2e", font_color="white")
     nt.set_options('{"physics": {"stabilization": {"iterations": 150}}}')
@@ -173,54 +169,6 @@ def _plot_interactive(G, score_map: dict, triage_map: dict, html_path: Path) -> 
 
     nt.save_graph(str(html_path))
     logger.info("Saved interactive HTML: %s", html_path)
-
-
-def plot_annotation_expansion_summary(
-    summary_df,
-    *,
-    output_path: Path,
-    top_n: int = 20,
-) -> None:
-    """
-    Bar chart of annotation_confidence per priority feature.
-    """
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        import pandas as pd
-    except ImportError as e:
-        logger.error("plot_annotation_expansion_summary requires matplotlib: %s", e)
-        return
-
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if summary_df is None or summary_df.empty:
-        logger.warning("summary_df is empty — skipping annotation expansion plot.")
-        return
-
-    df = summary_df.copy()
-    if "annotation_confidence" not in df.columns or "feature_id" not in df.columns:
-        logger.warning("Missing columns in summary_df — skipping plot.")
-        return
-
-    df = df.sort_values("annotation_confidence", ascending=False).head(top_n)
-
-    fig, ax = plt.subplots(figsize=(max(8, len(df) * 0.5), 5))
-    ax.bar(range(len(df)), df["annotation_confidence"], color="#2ECC71", edgecolor="white")
-    ax.set_xticks(range(len(df)))
-    ax.set_xticklabels(df["feature_id"], rotation=45, ha="right", fontsize=8)
-    ax.set_ylabel("Annotation confidence")
-    ax.set_title("2D Network: annotation confidence per priority feature")
-    ax.set_ylim(0, 1.05)
-    ax.axhline(0.5, color="red", linestyle="--", linewidth=0.8, alpha=0.7)
-
-    plt.tight_layout()
-    png_path = output_path.with_suffix(".png")
-    fig.savefig(png_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    logger.info("Saved annotation expansion summary plot: %s", png_path)
 
 
 def _id_col(df) -> str | None:

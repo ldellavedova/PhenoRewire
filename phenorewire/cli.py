@@ -10,6 +10,8 @@ import logging
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -55,19 +57,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    lvl = getattr(logging, args.log_level.upper(), logging.INFO)
-    logging.basicConfig(
-        level=lvl,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    )
+    from .config import LeanConfig
+    from .run import run, _setup_logging
+
+    _setup_logging(args.log_level)
 
     cfg_path = Path(args.config)
     if not cfg_path.exists():
         print(f"ERROR: Config file not found: {cfg_path}", file=sys.stderr)
         return 1
-
-    from .config import LeanConfig
-    from .run import run
 
     config = LeanConfig.from_yaml(cfg_path)
     run(config)
@@ -79,9 +77,6 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run_extras(config, args, cfg_path: Path) -> None:
-    from pathlib import Path
-    import logging
-
     logger = logging.getLogger("phenorewire.cli")
     outdir = Path(config.OUTDIR)
 
@@ -112,9 +107,7 @@ def _run_extras(config, args, cfg_path: Path) -> None:
             plot_outdir = outdir / "plots"
             plot_outdir.mkdir(parents=True, exist_ok=True)
             try:
-                from .triage import export_network_triage
                 priority_csv = outdir / "triage" / "priority_rewired_nodes.csv"
-                import pandas as pd
                 triage_df = pd.read_csv(priority_csv) if priority_csv.exists() else pd.DataFrame()
                 rewiring_df = triage_df
                 plot_rewiring_network(
@@ -168,7 +161,6 @@ def _run_extras(config, args, cfg_path: Path) -> None:
                 return
             phenorewire_path = _found
 
-        import pandas as pd
         priority_csv = outdir / "triage" / "priority_rewired_nodes.csv"
         priority_df = pd.read_csv(priority_csv) if priority_csv.exists() else pd.DataFrame()
 

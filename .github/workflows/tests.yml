@@ -5,6 +5,18 @@ on:
   pull_request:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ruff
+        run: python -m pip install ruff
+      - name: Lint
+        run: ruff check .
+
   pytest:
     runs-on: ubuntu-latest
     strategy:
@@ -24,7 +36,23 @@ jobs:
         run: phenorewire --config config_phenotype.yaml
       - name: Smoke test 2D annotation CLI
         run: phenorewire --config config_phenotype.yaml --run-2dnetwork
-      - name: Run targeted 2D unit tests
-        run: python -m pytest -q dev/tests/unit/test_2dnetwork.py
+      - name: Smoke test module entry point
+        run: python -m phenorewire --config config_phenotype.yaml
       - name: Run full test suite
         run: pytest dev/tests/
+
+  smoke-minimal-install:
+    # The runtime dependency set must be sufficient on its own: the optional
+    # extras (viz, benchmark) must not be needed for a standard run.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install runtime dependencies only
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+      - name: Run the pipeline
+        run: phenorewire --config config_phenotype.yaml

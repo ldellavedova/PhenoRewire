@@ -1,4 +1,4 @@
-﻿# ── PhenoRewire · Step 4 — Triage & ranking ──────────────────────────────────
+# ── PhenoRewire · Step 4 — Triage & ranking ──────────────────────────────────
 # Ranks features by triage_score and rewiring_score.
 # triage_score = 0.7 * topology_priority_score + 0.3 * selection_support_score
 #   topology_priority_score = mean percentile rank of [degree_centrality,
@@ -42,15 +42,6 @@ def _copy_if_exists(src: Path, dst: Path) -> None:
     dst = Path(dst)
     if src.exists():
         shutil.copy2(src, dst)
-
-
-def _move_if_exists(src: Path, dst: Path) -> None:
-    src = Path(src)
-    dst = Path(dst)
-    if src.exists():
-        if dst.exists():
-            dst.unlink()
-        shutil.move(str(src), str(dst))
 
 
 def export_network_triage(

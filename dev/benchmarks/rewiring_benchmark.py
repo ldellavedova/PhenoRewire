@@ -47,7 +47,7 @@ from phenorewire.networks import (
     summarize_rewiring,
 )
 from statsmodels.stats.multitest import multipletests
-from phenorewire.stats import fast_spearman_permutation_test, adaptive_fdr_selection
+from phenorewire.stats import spearman_permutation_test, adaptive_fdr_selection
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -152,7 +152,7 @@ def run_pipeline(
     mat = X.values.astype(float)
 
     # Feature selection
-    r_obs, p_emp = fast_spearman_permutation_test(mat, y, n_permutations=200, seed=seed)
+    r_obs, p_emp = spearman_permutation_test(mat, y, n_permutations=200, seed=seed)
     _, qvals, _, _ = multipletests(p_emp, alpha=0.2, method="fdr_bh")
     rej, _ = adaptive_fdr_selection(
         qvals, base_alpha=0.2, adaptive=True, min_selected=5, alpha_ceiling=0.4
@@ -164,8 +164,6 @@ def run_pipeline(
         selected_ids = X.index[order[:max(5, N_REWIRED)]].tolist()
 
     n_samples = X.shape[1]
-    n_ref = int((y == 0).sum())
-    n_case = int((y == 1).sum())
     samp_ids = X.columns.tolist()
     ref_samps = [samp_ids[i] for i in range(n_samples) if y[i] == 0]
     case_samps = [samp_ids[i] for i in range(n_samples) if y[i] == 1]

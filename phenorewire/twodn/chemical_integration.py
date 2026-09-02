@@ -13,6 +13,7 @@ TABLE 2 — annotation_expansion.csv : 1 row per (feature, neighbor) pair
 from __future__ import annotations
 
 import logging
+import re
 from collections import deque
 from pathlib import Path
 from typing import Optional
@@ -214,11 +215,13 @@ def build_annotation_expansion(
 
     summary_rows = []
     expansion_rows = []
+    neighbourhoods: dict[str, list[tuple[str, int, float]]] = {}
 
     for fid in feature_ids:
         in_pr = fid in G_pr
         in_mn = fid in G_mn
         neighbors = _hop_neighbors(G_mn, fid, hop_depth=hop_depth, min_cosine=min_cosine)
+        neighbourhoods[fid] = neighbors
 
         ann_nbrs = [(nid, h, c) for nid, h, c in neighbors if _node_annotation(G_mn, nid)]
         unann_nbrs = [(nid, h, c) for nid, h, c in neighbors if not _node_annotation(G_mn, nid)]
@@ -291,12 +294,10 @@ def build_annotation_expansion(
         len(summary_df), len(expansion_df), len(first_nbr_df), output_dir,
     )
 
-    # Per-feature subnetwork GraphMLs
+    # Per-feature subnetwork GraphMLs, reusing the neighbourhoods computed above.
     _write_subnetworks(
         G_mn=G_mn,
-        feature_ids=feature_ids,
-        hop_depth=hop_depth,
-        min_cosine=min_cosine,
+        neighbourhoods=neighbourhoods,
         output_dir=output_dir / "subnetworks",
     )
 
@@ -315,19 +316,49 @@ def _detect_id_col(df: pd.DataFrame) -> Optional[str]:
     return None
 
 
+_UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]|\s')
+
+
+def _safe_filename(name: str, *, used: set[str]) -> str:
+    """Turn a feature ID into a filename that is valid on Windows and unique.
+
+    Feature IDs come from user data and routinely contain characters Windows
+    rejects in paths.  Sanitizing alone can also make two distinct IDs collide,
+    so a numeric suffix is appended when that happens.
+    """
+    stem = _UNSAFE_FILENAME_CHARS.sub("_", str(name)).strip(". ") or "feature"
+    stem = stem[:100]
+    candidate = stem
+    suffix = 1
+    while candidate.lower() in used:
+        suffix += 1
+        candidate = f"{stem}_{suffix}"
+    used.add(candidate.lower())
+    return candidate
+
+
 def _write_subnetworks(
     G_mn: nx.Graph,
-    feature_ids: list[str],
-    hop_depth: int,
-    min_cosine: float,
+    neighbourhoods: dict[str, list[tuple[str, int, float]]],
     output_dir: Path,
 ) -> None:
     """Write one GraphML per priority feature containing its k-hop subnetwork."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    for fid in feature_ids:
-        nbrs = _hop_neighbors(G_mn, fid, hop_depth=hop_depth, min_cosine=min_cosine)
-        node_set = {fid} | {nid for nid, _, _ in nbrs}
-        subG = G_mn.subgraph(node_set).copy()
-        safe_name = fid.replace("/", "_").replace("\\", "_").replace(" ", "_")
-        out_path = output_dir / f"{safe_name}_subnetwork.graphml"
+    used: set[str] = set()
+    for fid, nbrs in neighbourhoods.items():
+        # Sorted, not a raw set: iterating a set of strings follows Python's
+        # per-process hash randomization, so the same input produced byte-different
+        # GraphML on every run.
+        # A priority feature absent from the chemical network contributes no node,
+        # matching subgraph()'s behaviour of ignoring unknown ids.
+        node_ids = sorted(n for n in ({fid} | {nid for nid, _, _ in nbrs}) if n in G_mn)
+        subG = nx.Graph()
+        subG.add_nodes_from((n, dict(G_mn.nodes[n])) for n in node_ids)
+        node_pos = {n: i for i, n in enumerate(node_ids)}
+        for u, v, data in sorted(
+            G_mn.subgraph(node_ids).edges(data=True),
+            key=lambda e: (node_pos[e[0]], node_pos[e[1]]),
+        ):
+            subG.add_edge(u, v, **data)
+        out_path = output_dir / f"{_safe_filename(fid, used=used)}_subnetwork.graphml"
         nx.write_graphml(subG, str(out_path))

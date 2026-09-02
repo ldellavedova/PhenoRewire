@@ -44,7 +44,7 @@ from sklearn.metrics import roc_auc_score, average_precision_score
 from statsmodels.stats.multitest import multipletests
 
 from phenorewire.networks import correlation_network, compute_rewiring, summarize_rewiring
-from phenorewire.stats import fast_spearman_permutation_test, adaptive_fdr_selection
+from phenorewire.stats import spearman_permutation_test, adaptive_fdr_selection
 
 # ---------------------------------------------------------------------------
 # Shared constants (identical to rewiring_benchmark.py)
@@ -113,7 +113,7 @@ def run_phenorewire(X: pd.DataFrame, y: np.ndarray, seed: int) -> pd.Series:
     """Return a Series indexed by feature_id with rewiring_score (higher = more rewired)."""
     mat = X.values.astype(float)
 
-    r_obs, p_emp = fast_spearman_permutation_test(mat, y, n_permutations=200, seed=seed)
+    r_obs, p_emp = spearman_permutation_test(mat, y, n_permutations=200, seed=seed)
     _, qvals, _, _ = multipletests(p_emp, alpha=0.2, method="fdr_bh")
     rej, _ = adaptive_fdr_selection(qvals, base_alpha=0.2, adaptive=True, min_selected=5, alpha_ceiling=0.4)
 

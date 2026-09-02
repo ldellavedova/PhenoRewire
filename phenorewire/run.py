@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 import logging
@@ -48,6 +48,19 @@ def _parse_time_numeric(series: pd.Series) -> pd.Series:
     s = s.str.replace("hours", "", regex=False).str.replace("hour", "", regex=False).str.replace("h", "", regex=False)
     s = s.str.strip()
     return pd.to_numeric(s, errors="coerce")
+
+
+def _timepoint_label(t: float) -> str:
+    """Filename-safe label for a timepoint.
+
+    Integer-valued timepoints keep the plain "3h" form.  Fractional ones keep their
+    value with the decimal point spelled out ("0.5" -> "0p5h"), so two distinct
+    timepoints can never collapse onto the same directory name.
+    """
+    t = float(t)
+    if t.is_integer():
+        return f"{int(t)}h"
+    return f"{t:g}".replace("-", "neg").replace(".", "p") + "h"
 
 
 def _subset_samples(meta2: pd.DataFrame, sample_col: str, mask: pd.Series) -> list[str]:
@@ -301,20 +314,71 @@ def run(config: LeanConfig) -> None:
     X_corr = X_corr.loc[:, samp_ids]
 
     unique_groups = sorted(meta2["group"].unique())
-    can_run_temporal = bool(config.TEMPORAL_CORRELATION.enabled)
 
     # phenotype direction
     ref_group = getattr(config, "PHENO_GROUP_REF", None)
     case_group = getattr(config, "PHENO_GROUP_CASE", None)
 
-    can_run_pheno = len(unique_groups) == 2
-    if requested_mode == "phenotype":
-        can_run_temporal = False
-    elif requested_mode == "temporal":
-        can_run_pheno = False
-    elif requested_mode == "both":
-        can_run_pheno = len(unique_groups) == 2
-        can_run_temporal = bool(config.TEMPORAL_CORRELATION.enabled)
+    wants_pheno = requested_mode in {"auto", "phenotype", "both"}
+    wants_temporal = (
+        requested_mode in {"auto", "temporal", "both"}
+        and bool(config.TEMPORAL_CORRELATION.enabled)
+    )
+
+    # When the config names the two groups to contrast, honour that choice instead
+    # of refusing to run because a third group also has samples.
+    if wants_pheno and len(unique_groups) > 2 and ref_group is not None and case_group is not None:
+        contrast = [str(ref_group), str(case_group)]
+        missing = [g for g in contrast if g not in unique_groups]
+        if missing:
+            raise ValueError(
+                f"PHENO_GROUP_REF/CASE name group(s) with no samples: {missing}. "
+                f"Groups with samples after filtering: {unique_groups}."
+            )
+        temporal_group = str(config.TEMPORAL_CORRELATION.phenotype or "")
+        if wants_temporal and temporal_group and temporal_group not in contrast:
+            raise ValueError(
+                f"Cannot restrict the phenotype contrast to {contrast}: "
+                f"TEMPORAL_CORRELATION.phenotype='{temporal_group}' lies outside it, so the "
+                "temporal analysis would lose its samples.\n"
+                "To resolve: run the two analyses as separate jobs, or narrow GROUP_DEFINITION "
+                "so only the groups you need match samples."
+            )
+        dropped = [g for g in unique_groups if g not in contrast]
+        logger.info(
+            "PHENO_GROUP_REF/CASE select the contrast '%s' vs '%s'; ignoring %d other group(s): %s",
+            contrast[0], contrast[1], len(dropped), dropped,
+        )
+        meta2 = meta2[meta2["group"].isin(contrast)].copy()
+        samp_ids = meta2[config.META_SAMPLE_COL].astype(str).tolist()
+        X_corr = X_corr.loc[:, samp_ids]
+        unique_groups = sorted(meta2["group"].unique())
+
+    can_run_pheno = wants_pheno and len(unique_groups) == 2
+    can_run_temporal = wants_temporal
+
+    # An analysis the user asked for explicitly must never be skipped in silence:
+    # a run that produces no results has to fail loudly, not exit 0 with an empty report.
+    if requested_mode in {"phenotype", "both"} and not can_run_pheno:
+        raise ValueError(
+            f"ANALYSIS_MODE='{requested_mode}' requires exactly two groups with samples, but "
+            f"{len(unique_groups)} group(s) remain after filtering: {unique_groups}.\n"
+            "To resolve: set PHENO_GROUP_REF and PHENO_GROUP_CASE to the two groups you want "
+            "to contrast, or narrow GROUP_DEFINITION so only those two match samples."
+        )
+    if requested_mode in {"temporal", "both"} and not can_run_temporal:
+        raise ValueError(
+            f"ANALYSIS_MODE='{requested_mode}' requires TEMPORAL_CORRELATION.enabled: true "
+            "in the config."
+        )
+    if requested_mode == "auto" and not (can_run_pheno or can_run_temporal):
+        raise ValueError(
+            "ANALYSIS_MODE='auto' found nothing to run: the phenotype contrast needs exactly "
+            f"two groups with samples (found {len(unique_groups)}: {unique_groups}), and "
+            "TEMPORAL_CORRELATION is not enabled.\n"
+            "To resolve: set PHENO_GROUP_REF/PHENO_GROUP_CASE, narrow GROUP_DEFINITION, or "
+            "enable TEMPORAL_CORRELATION."
+        )
 
     # Sample size guards — applied to all groups that will be used
     _check_group_sample_sizes(meta2["group"])
@@ -355,8 +419,11 @@ def run(config: LeanConfig) -> None:
             {"executed": True, "ref_group": ref_group, "case_group": case_group}
         )
     else:
+        # Only reachable in 'auto' mode with a temporal analysis to fall back on;
+        # every other combination has already raised above.
         logger.info(
-            "Phenotype comparison disabled for this run because %d usable groups remain after filtering: %s",
+            "Phenotype comparison not run: %d group(s) with samples after filtering (%s); "
+            "continuing with the temporal analysis.",
             len(unique_groups),
             unique_groups,
         )
@@ -566,7 +633,9 @@ def run(config: LeanConfig) -> None:
                     logger.warning("No temporal features selected. Skipping temporal rewiring networks.")
                 else:
                     t1 = float(getattr(config, "TIMEPOINT_T1", 3))
+                    lbl_t1 = _timepoint_label(t1)
                     t2 = float(getattr(config, "TIMEPOINT_T2", 6))
+                    lbl_t2 = _timepoint_label(t2)
 
                     meta_t1 = meta_sub[time_num == t1].copy()
                     meta_t2 = meta_sub[time_num == t2].copy()
@@ -600,12 +669,12 @@ def run(config: LeanConfig) -> None:
                     eps = 1e-12
                     temp_sel2["time_direction"] = np.where(
                         temp_sel2["delta_t2_minus_t1"].astype(float) > eps,
-                        f"up_at_{int(t2)}h",
-                        np.where(temp_sel2["delta_t2_minus_t1"].astype(float) < -eps, f"up_at_{int(t1)}h", "flat"),
+                        f"up_at_{lbl_t2}",
+                        np.where(temp_sel2["delta_t2_minus_t1"].astype(float) < -eps, f"up_at_{lbl_t1}", "flat"),
                     )
 
-                    net_t1_out = outdir / f"network_{pheno_name}_{int(t1)}h"
-                    net_t2_out = outdir / f"network_{pheno_name}_{int(t2)}h"
+                    net_t1_out = outdir / f"network_{pheno_name}_{lbl_t1}"
+                    net_t2_out = outdir / f"network_{pheno_name}_{lbl_t2}"
 
                     edges_t1, report_t1 = _build_and_export_network(
                         temp_sel2,
@@ -624,7 +693,7 @@ def run(config: LeanConfig) -> None:
                         selection_weight=config.TRIAGE_SELECTION_WEIGHT,
                         louvain_stability_check=config.LOUVAIN_STABILITY_CHECK,
                     )
-                    _check_network_hard_stops(report_t1, f"t={int(t1)}h", config.NETWORK_MIN_EDGES_HARD_STOP, config.NETWORK_MIN_NODES_HARD_STOP)
+                    _check_network_hard_stops(report_t1, f"t={lbl_t1}", config.NETWORK_MIN_EDGES_HARD_STOP, config.NETWORK_MIN_NODES_HARD_STOP)
                     edges_t2, report_t2 = _build_and_export_network(
                         temp_sel2,
                         X_t2,
@@ -642,13 +711,13 @@ def run(config: LeanConfig) -> None:
                         selection_weight=config.TRIAGE_SELECTION_WEIGHT,
                         louvain_stability_check=config.LOUVAIN_STABILITY_CHECK,
                     )
-                    _check_network_hard_stops(report_t2, f"t={int(t2)}h", config.NETWORK_MIN_EDGES_HARD_STOP, config.NETWORK_MIN_NODES_HARD_STOP)
-                    report_t1["label"] = f"{int(t1)}h"
-                    report_t2["label"] = f"{int(t2)}h"
+                    _check_network_hard_stops(report_t2, f"t={lbl_t2}", config.NETWORK_MIN_EDGES_HARD_STOP, config.NETWORK_MIN_NODES_HARD_STOP)
+                    report_t1["label"] = f"{lbl_t1}"
+                    report_t2["label"] = f"{lbl_t2}"
                     report_data["temporal"].update(
                         {
-                            "timepoint_a": f"{int(t1)}h",
-                            "timepoint_b": f"{int(t2)}h",
+                            "timepoint_a": f"{lbl_t1}",
+                            "timepoint_b": f"{lbl_t2}",
                             "network_t1": report_t1,
                             "network_t2": report_t2,
                         }
@@ -664,18 +733,18 @@ def run(config: LeanConfig) -> None:
                     shared_t, only_t1, only_t2, union_t = compute_rewiring(
                         edges_t1,
                         edges_t2,
-                        label_a=f"{int(t1)}h",
-                        label_b=f"{int(t2)}h",
+                        label_a=f"{lbl_t1}",
+                        label_b=f"{lbl_t2}",
                         sign_switch_min_r=config.SIGN_SWITCH_MIN_R,
                     )
                     rewiring_summary_t, rewiring_nodes_t = summarize_rewiring(
                         union_t,
-                        label_a=f"{int(t1)}h",
-                        label_b=f"{int(t2)}h",
+                        label_a=f"{lbl_t1}",
+                        label_b=f"{lbl_t2}",
                     )
                     shared_t.to_csv(rew_time_out / "edges_shared.csv", index=False)
-                    only_t1.to_csv(rew_time_out / f"edges_{int(t1)}h_only.csv", index=False)
-                    only_t2.to_csv(rew_time_out / f"edges_{int(t2)}h_only.csv", index=False)
+                    only_t1.to_csv(rew_time_out / f"edges_{lbl_t1}_only.csv", index=False)
+                    only_t2.to_csv(rew_time_out / f"edges_{lbl_t2}_only.csv", index=False)
                     union_t.to_csv(rew_time_out / "edges_union_with_stats.csv", index=False)
                     rewiring_summary_t.to_csv(rew_time_out / "rewiring_summary.csv", index=False)
                     rewiring_nodes_t.to_csv(rew_time_out / "rewiring_node_summary.csv", index=False)
@@ -717,34 +786,3 @@ def run(config: LeanConfig) -> None:
     )
 
     logger.info("Pipeline completed. OUTDIR = %s", outdir)
-
-
-def main(argv: list[str] | None = None) -> int:
-    import argparse
-
-    p = argparse.ArgumentParser(description="PhenoRewire: phenotype-aware metabolic rewiring and network dynamics")
-    p.add_argument("--config", required=True, help="Path to YAML config file")
-    p.add_argument("--log-level", default="INFO", help="DEBUG/INFO/WARNING/ERROR")
-    args = p.parse_args(argv)
-
-    _setup_logging(args.log_level)
-
-    cfg_path = Path(args.config)
-    if not cfg_path.exists():
-        raise FileNotFoundError(f"Config not found: {cfg_path}")
-
-    if hasattr(LeanConfig, "from_yaml"):
-        config = LeanConfig.from_yaml(cfg_path)
-    elif hasattr(LeanConfig, "from_file"):
-        config = LeanConfig.from_file(cfg_path)
-    else:
-        raise AttributeError("LeanConfig must implement from_yaml(...) or from_file(...) to load YAML configs.")
-
-    run(config)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-
-

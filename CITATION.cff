@@ -1,8 +1,8 @@
 cff-version: 1.2.0
 message: >-
-  PhenoRewire has not yet been formally published.
-  If you use this software in a manuscript, please cite the repository
-  directly until a formal citation (DOI, paper) is available.
+  If you use PhenoRewire, please cite the preprint listed under
+  preferred-citation. To cite a specific release of the software itself,
+  use the metadata in this file.
 title: "PhenoRewire: phenotype-aware metabolomics network rewiring"
 abstract: >-
   PhenoRewire is a Python command-line tool for detecting network rewiring
@@ -13,8 +13,54 @@ authors:
   - family-names: "Della Vedova"
     given-names: "Larissa"
     email: "l.dellavedova@uu.nl"
-version: "0.1.0"
-date-released: "2026-06-09"
+version: "0.1.1"
+date-released: "2026-09-02"
 url: "https://github.com/ldellavedova/PhenoRewire"
 license: MIT
-# TODO: add doi once the repository is archived on Zenodo or the manuscript is published
+keywords:
+  - metabolomics
+  - network rewiring
+  - co-variation network
+  - urobiome
+  - untargeted mass spectrometry
+preferred-citation:
+  type: article
+  title: >-
+    Metabolite co-variation networks reveal keystone functions and an emergent
+    pathogen state in the human urobiome
+  authors:
+    - family-names: "Della Vedova"
+      given-names: "L."
+    - family-names: "Bindas"
+      given-names: "A. J."
+    - family-names: "Teixeira Dias"
+      given-names: "M."
+    - family-names: "Brons"
+      given-names: "J. K."
+    - family-names: "Fang"
+      given-names: "Z."
+    - family-names: "Fernandes"
+      given-names: "A. M."
+    - family-names: "Gallardo Molina"
+      given-names: "P."
+    - family-names: "Giron-Villalobos"
+      given-names: "D."
+    - family-names: "Hackl"
+      given-names: "T."
+    - family-names: "Jansen"
+      given-names: "J."
+    - family-names: "Wells"
+      given-names: "J. M."
+    - family-names: "de Vos"
+      given-names: "M. G."
+    - family-names: "Berkers"
+      given-names: "C. R."
+    - family-names: "van der Hooft"
+      given-names: "J. J. J."
+  journal: "bioRxiv"
+  year: 2026
+  month: 8
+  doi: "10.64898/2026.08.29.748013"
+  url: "https://www.biorxiv.org/content/10.64898/2026.08.29.748013v1"
+# TODO: replace preferred-citation with the journal reference once the paper is published.
+# TODO: add a Zenodo DOI here (as `doi:`) if the repository is archived for versioned citation.

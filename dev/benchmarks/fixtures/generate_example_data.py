@@ -35,7 +35,8 @@ case_mod1 = rng.standard_normal(N_CASE) * 0.4   # Module A dampened in case
 case_mod3 = rng.standard_normal(N_CASE)          # Module C (case-specific)
 case_mod4 = rng.standard_normal(N_CASE)          # Module D (case-specific)
 
-noise = lambda n: rng.normal(0, 0.25, n)
+def noise(n):
+    return rng.normal(0, 0.25, n)
 
 # ── Feature intensities ───────────────────────────────────────────────────────
 # F001–F004: Module A — correlated in both groups, slightly higher in case

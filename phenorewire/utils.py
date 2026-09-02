@@ -45,9 +45,42 @@ def median_normalize(X: pd.DataFrame) -> pd.DataFrame:
     return X.mul(scale, axis=1)
 
 
+def _json_default(value: Any):
+    """Fallback encoder for values pandas/numpy hand back that json cannot serialize.
+
+    Reporting runs last, so an unencodable numpy scalar here would throw away a whole
+    pipeline run.  Convert what we can, stringify the rest.
+    """
+    if isinstance(value, np.generic):
+        return _json_safe(value.item())
+    if isinstance(value, np.ndarray):
+        return _json_safe(value.tolist())
+    if isinstance(value, Path):
+        return str(value)
+    return str(value)
+
+
+def _json_safe(obj: Any) -> Any:
+    """Recursively replace non-finite floats with None.
+
+    ``json.dump`` writes bare ``NaN``/``Infinity`` tokens, which are not valid JSON
+    and are rejected by strict parsers (``JSON.parse``, ``jq``).  The reports are
+    meant to be machine-readable, so emit ``null`` instead.
+    """
+    if isinstance(obj, float):
+        return obj if np.isfinite(obj) else None
+    if isinstance(obj, np.generic):
+        return _json_safe(obj.item())
+    if isinstance(obj, dict):
+        return {str(k): _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    return obj
+
+
 def save_json(obj: dict, path: Path) -> None:
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(obj, f, indent=2)
+        json.dump(_json_safe(obj), f, indent=2, default=_json_default)
 
 
 def assign_groups(meta: pd.DataFrame, group_definition: Dict[str, Dict[str, Any]]) -> List[str]:
@@ -67,6 +100,13 @@ def assign_groups(meta: pd.DataFrame, group_definition: Dict[str, Dict[str, Any]
                 return None
         except Exception:
             pass
+
+        # pandas hands back numpy scalars whenever a row is not object-dtype, and
+        # numpy scalars are not instances of the Python int/bool types checked below.
+        # Unwrap them first, or a metadata column of plain integers never matches the
+        # integer written in the YAML.
+        if isinstance(x, np.generic):
+            x = x.item()
 
         if isinstance(x, str):
             s = x.strip()

@@ -30,6 +30,22 @@ NODE_METRIC_COLS = [
 ]
 
 
+def _empty_threshold_meta(abs_r_thr: float, fdr_alpha: float) -> dict[str, Any]:
+    """Threshold metadata for a network that could not be built (no edges, too few features)."""
+    return {
+        "base_abs_r_thr": float(abs_r_thr),
+        "base_fdr_alpha": float(fdr_alpha),
+        "applied_abs_r_thr": float(abs_r_thr),
+        "applied_fdr_alpha": float(fdr_alpha),
+        "adaptive_thresholds_used": False,
+        "target_min_edges": 0,
+        "target_max_edges": 0,
+        "candidate_edges_before_filter": 0,
+        "selected_edge_count": 0,
+        "selected_density": 0.0,
+    }
+
+
 def _threshold_grid(base_abs_r_thr: float, base_fdr_alpha: float, floor_abs_r_thr: float, ceil_fdr_alpha: float) -> list[tuple[float, float]]:
     abs_candidates = sorted(
         {
@@ -167,11 +183,11 @@ def correlation_network(
 
     # Basic shape checks
     if X_feat_by_samp is None or X_feat_by_samp.empty:
-        return nx.Graph(), pd.DataFrame(columns=EDGE_COLS), {"adaptive_thresholds_used": False, "applied_abs_r_thr": float(abs_r_thr), "applied_fdr_alpha": float(fdr_alpha), "selected_edge_count": 0, "selected_density": 0.0, "target_min_edges": 0, "target_max_edges": 0, "candidate_edges_before_filter": 0, "base_abs_r_thr": float(abs_r_thr), "base_fdr_alpha": float(fdr_alpha)}
+        return nx.Graph(), pd.DataFrame(columns=EDGE_COLS), _empty_threshold_meta(abs_r_thr, fdr_alpha)
 
     if X_feat_by_samp.shape[0] < 2 or X_feat_by_samp.shape[1] < 3:
         # need >=2 features and >=3 samples for a meaningful rank correlation matrix
-        return nx.Graph(), pd.DataFrame(columns=EDGE_COLS), {"adaptive_thresholds_used": False, "applied_abs_r_thr": float(abs_r_thr), "applied_fdr_alpha": float(fdr_alpha), "selected_edge_count": 0, "selected_density": 0.0, "target_min_edges": 0, "target_max_edges": 0, "candidate_edges_before_filter": 0, "base_abs_r_thr": float(abs_r_thr), "base_fdr_alpha": float(fdr_alpha)}
+        return nx.Graph(), pd.DataFrame(columns=EDGE_COLS), _empty_threshold_meta(abs_r_thr, fdr_alpha)
 
     # Raw matrix (features x samples)
     mat = X_feat_by_samp.values.astype(float)
@@ -195,14 +211,14 @@ def correlation_network(
 
     # Need enough features & samples after filtering
     if mat2.shape[0] < 2 or mat2.shape[1] < 3:
-        return nx.Graph(), pd.DataFrame(columns=EDGE_COLS), {"adaptive_thresholds_used": False, "applied_abs_r_thr": float(abs_r_thr), "applied_fdr_alpha": float(fdr_alpha), "selected_edge_count": 0, "selected_density": 0.0, "target_min_edges": 0, "target_max_edges": 0, "candidate_edges_before_filter": 0, "base_abs_r_thr": float(abs_r_thr), "base_fdr_alpha": float(fdr_alpha)}
+        return nx.Graph(), pd.DataFrame(columns=EDGE_COLS), _empty_threshold_meta(abs_r_thr, fdr_alpha)
 
     # Memory note: O(n_features²) — ~8 MB at 1k features, ~200 MB at 5k,
     # ~800 MB at 10k. For large feature sets consider pre-filtering.
     R, P = spearmanr(mat2.T, axis=0)
 
     if not isinstance(R, np.ndarray) or R.ndim != 2:
-        return nx.Graph(), pd.DataFrame(columns=EDGE_COLS), {"adaptive_thresholds_used": False, "applied_abs_r_thr": float(abs_r_thr), "applied_fdr_alpha": float(fdr_alpha), "selected_edge_count": 0, "selected_density": 0.0, "target_min_edges": 0, "target_max_edges": 0, "candidate_edges_before_filter": 0, "base_abs_r_thr": float(abs_r_thr), "base_fdr_alpha": float(fdr_alpha)}
+        return nx.Graph(), pd.DataFrame(columns=EDGE_COLS), _empty_threshold_meta(abs_r_thr, fdr_alpha)
 
     # Upper triangle indices
     iu = np.triu_indices(R.shape[0], k=1)
@@ -210,8 +226,21 @@ def correlation_network(
     pvals = P[iu].astype(float)
 
     finite = np.isfinite(rvals) & np.isfinite(pvals)
+
+    # spearmanr propagates NaN across the whole row/column of an affected feature, so a
+    # single missing value silently removes that feature from the network.  Say so.
+    n_non_finite = int((~finite).sum())
+    if n_non_finite:
+        affected = np.unique(np.concatenate([iu[0][~finite], iu[1][~finite]]))
+        logger.warning(
+            "%d/%d candidate edges have a non-finite correlation and were discarded, "
+            "affecting %d feature(s). This usually means missing values in the intensity "
+            "matrix; a single NaN removes a feature from the network entirely.",
+            n_non_finite, finite.size, affected.size,
+        )
+
     if int(finite.sum()) == 0:
-        return nx.Graph(), pd.DataFrame(columns=EDGE_COLS), {"adaptive_thresholds_used": False, "applied_abs_r_thr": float(abs_r_thr), "applied_fdr_alpha": float(fdr_alpha), "selected_edge_count": 0, "selected_density": 0.0, "target_min_edges": 0, "target_max_edges": 0, "candidate_edges_before_filter": 0, "base_abs_r_thr": float(abs_r_thr), "base_fdr_alpha": float(fdr_alpha)}
+        return nx.Graph(), pd.DataFrame(columns=EDGE_COLS), _empty_threshold_meta(abs_r_thr, fdr_alpha)
 
     # BH-FDR on p-values
     rej = np.zeros_like(pvals, dtype=bool)
