@@ -346,7 +346,19 @@ def _write_subnetworks(
     output_dir.mkdir(parents=True, exist_ok=True)
     used: set[str] = set()
     for fid, nbrs in neighbourhoods.items():
-        node_set = {fid} | {nid for nid, _, _ in nbrs}
-        subG = G_mn.subgraph(node_set).copy()
+        # Sorted, not a raw set: iterating a set of strings follows Python's
+        # per-process hash randomization, so the same input produced byte-different
+        # GraphML on every run.
+        # A priority feature absent from the chemical network contributes no node,
+        # matching subgraph()'s behaviour of ignoring unknown ids.
+        node_ids = sorted(n for n in ({fid} | {nid for nid, _, _ in nbrs}) if n in G_mn)
+        subG = nx.Graph()
+        subG.add_nodes_from((n, dict(G_mn.nodes[n])) for n in node_ids)
+        node_pos = {n: i for i, n in enumerate(node_ids)}
+        for u, v, data in sorted(
+            G_mn.subgraph(node_ids).edges(data=True),
+            key=lambda e: (node_pos[e[0]], node_pos[e[1]]),
+        ):
+            subG.add_edge(u, v, **data)
         out_path = output_dir / f"{_safe_filename(fid, used=used)}_subnetwork.graphml"
         nx.write_graphml(subG, str(out_path))
