@@ -8,7 +8,6 @@ from pathlib import Path
 import re
 from typing import Optional, Tuple, Dict, Any
 
-import numpy as np
 import pandas as pd
 import logging
 
@@ -89,9 +88,18 @@ def prepare_matrices(
     X = X.loc[keep].copy()
     logger.info("Global presence filter kept %d/%d features.", int(keep.sum()), int(len(keep)))
 
+    # Which features carry no sample-to-sample information at all?  This has to be
+    # judged on the raw intensities: median normalization multiplies each column by
+    # its own factor, so a constant row comes out proportional to the factor vector
+    # and looks like it varies.  Recorded here, applied after normalization.
+    raw_constant = X.std(axis=1, skipna=True) <= 0
+
     # -------------------------
     # Normalize + log
     # -------------------------
+    # Normalization deliberately still sees every feature, constant ones included:
+    # the scale factors are what they have always been, so removing a constant
+    # feature cannot shift the results of any other feature.
     if norm_method.lower() == "median":
         X = median_normalize(X)
     else:
@@ -100,16 +108,39 @@ def prepare_matrices(
     if log_transform:
         X = safe_log2p1(X)
 
-    # Remove zero-variance features (constant rows produce NaN Spearman r)
-    row_std = X.std(axis=1, skipna=True)
-    nonzero_var = row_std > 0
-    n_dropped = int((~nonzero_var).sum())
-    if n_dropped > 0:
+    # -------------------------
+    # Drop uninformative features
+    # -------------------------
+    # Two kinds, dropped together:
+    #  - constant in the raw data.  Every such row is proportional to the same scale
+    #    factor vector, so after normalization they all correlate at rho = 1.0 with
+    #    each other (a spurious clique) and carry whatever association the scale
+    #    factors have with the phenotype.  A variance check applied only after
+    #    normalization never sees them.
+    #  - flat after normalization, from rounding or a degenerate scale factor.
+    post_constant = X.std(axis=1, skipna=True) <= 0
+    uninformative = raw_constant.reindex(X.index, fill_value=False) | post_constant
+
+    n_raw = int(raw_constant.reindex(X.index, fill_value=False).sum())
+    n_post = int((post_constant & ~raw_constant.reindex(X.index, fill_value=False)).sum())
+    if n_raw > 0:
         logger.warning(
-            "Removed %d zero-variance feature(s) before correlation analysis.",
-            n_dropped,
+            "Removed %d feature(s) with identical intensity in every sample. After median "
+            "normalization they would correlate perfectly with each other, producing edges "
+            "that reflect the normalization factors rather than the data.",
+            n_raw,
         )
-        X = X.loc[nonzero_var].copy()
+    if n_post > 0:
+        logger.warning("Removed %d zero-variance feature(s) after normalization.", n_post)
+
+    if uninformative.any():
+        X = X.loc[~uninformative].copy()
+
+    if X.empty:
+        raise ValueError(
+            "No features left after the presence and zero-variance filters. "
+            "Check MIN_PRESENCE_GLOBAL and MIN_NONZERO_INTENSITY."
+        )
 
     # -------------------------
     # Align metadata to matrix samples
@@ -190,7 +221,28 @@ def prepare_matrices(
     )
 
     # Ensure feature_id is string
-    feat_anno["feature_id"] = feat_anno["feature_id"].astype(str)
+    feat_anno["feature_id"] = feat_anno["feature_id"].astype(str).str.strip()
+
+    # Feature IDs index every downstream table and become node IDs in the networks.
+    # Duplicates silently produce self-loops and duplicated rows on .loc[] lookups,
+    # so they have to be caught here rather than surfacing as a corrupt graph.
+    dup_feat = feat_anno["feature_id"].duplicated(keep=False)
+    if dup_feat.any():
+        dup_ids = feat_anno.loc[dup_feat, "feature_id"].unique().tolist()
+        raise ValueError(
+            f"FEATURE_ID_COL='{feature_id_col}' contains {len(dup_ids)} duplicated value(s).\n"
+            f"Duplicates (first 15): {dup_ids[:15]}\n"
+            "Feature IDs must be unique: they index every output table and name the nodes "
+            "of the correlation networks. Fix the feature table, or point FEATURE_ID_COL at "
+            "a column that is unique (a compound name usually is not)."
+        )
+
+    empty_ids = feat_anno["feature_id"].isin({"", "nan", "None"})
+    if empty_ids.any():
+        raise ValueError(
+            f"FEATURE_ID_COL='{feature_id_col}' has {int(empty_ids.sum())} empty or missing "
+            "value(s). Every feature needs an identifier."
+        )
 
     # Set X index to feature_id (and align to annotation)
     X_feat_by_samp = X.copy()

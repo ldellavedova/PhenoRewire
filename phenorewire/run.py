@@ -50,6 +50,19 @@ def _parse_time_numeric(series: pd.Series) -> pd.Series:
     return pd.to_numeric(s, errors="coerce")
 
 
+def _timepoint_label(t: float) -> str:
+    """Filename-safe label for a timepoint.
+
+    Integer-valued timepoints keep the plain "3h" form.  Fractional ones keep their
+    value with the decimal point spelled out ("0.5" -> "0p5h"), so two distinct
+    timepoints can never collapse onto the same directory name.
+    """
+    t = float(t)
+    if t.is_integer():
+        return f"{int(t)}h"
+    return f"{t:g}".replace("-", "neg").replace(".", "p") + "h"
+
+
 def _subset_samples(meta2: pd.DataFrame, sample_col: str, mask: pd.Series) -> list[str]:
     return meta2.loc[mask, sample_col].astype(str).tolist()
 
@@ -620,7 +633,9 @@ def run(config: LeanConfig) -> None:
                     logger.warning("No temporal features selected. Skipping temporal rewiring networks.")
                 else:
                     t1 = float(getattr(config, "TIMEPOINT_T1", 3))
+                    lbl_t1 = _timepoint_label(t1)
                     t2 = float(getattr(config, "TIMEPOINT_T2", 6))
+                    lbl_t2 = _timepoint_label(t2)
 
                     meta_t1 = meta_sub[time_num == t1].copy()
                     meta_t2 = meta_sub[time_num == t2].copy()
@@ -654,12 +669,12 @@ def run(config: LeanConfig) -> None:
                     eps = 1e-12
                     temp_sel2["time_direction"] = np.where(
                         temp_sel2["delta_t2_minus_t1"].astype(float) > eps,
-                        f"up_at_{int(t2)}h",
-                        np.where(temp_sel2["delta_t2_minus_t1"].astype(float) < -eps, f"up_at_{int(t1)}h", "flat"),
+                        f"up_at_{lbl_t2}",
+                        np.where(temp_sel2["delta_t2_minus_t1"].astype(float) < -eps, f"up_at_{lbl_t1}", "flat"),
                     )
 
-                    net_t1_out = outdir / f"network_{pheno_name}_{int(t1)}h"
-                    net_t2_out = outdir / f"network_{pheno_name}_{int(t2)}h"
+                    net_t1_out = outdir / f"network_{pheno_name}_{lbl_t1}"
+                    net_t2_out = outdir / f"network_{pheno_name}_{lbl_t2}"
 
                     edges_t1, report_t1 = _build_and_export_network(
                         temp_sel2,
@@ -678,7 +693,7 @@ def run(config: LeanConfig) -> None:
                         selection_weight=config.TRIAGE_SELECTION_WEIGHT,
                         louvain_stability_check=config.LOUVAIN_STABILITY_CHECK,
                     )
-                    _check_network_hard_stops(report_t1, f"t={int(t1)}h", config.NETWORK_MIN_EDGES_HARD_STOP, config.NETWORK_MIN_NODES_HARD_STOP)
+                    _check_network_hard_stops(report_t1, f"t={lbl_t1}", config.NETWORK_MIN_EDGES_HARD_STOP, config.NETWORK_MIN_NODES_HARD_STOP)
                     edges_t2, report_t2 = _build_and_export_network(
                         temp_sel2,
                         X_t2,
@@ -696,13 +711,13 @@ def run(config: LeanConfig) -> None:
                         selection_weight=config.TRIAGE_SELECTION_WEIGHT,
                         louvain_stability_check=config.LOUVAIN_STABILITY_CHECK,
                     )
-                    _check_network_hard_stops(report_t2, f"t={int(t2)}h", config.NETWORK_MIN_EDGES_HARD_STOP, config.NETWORK_MIN_NODES_HARD_STOP)
-                    report_t1["label"] = f"{int(t1)}h"
-                    report_t2["label"] = f"{int(t2)}h"
+                    _check_network_hard_stops(report_t2, f"t={lbl_t2}", config.NETWORK_MIN_EDGES_HARD_STOP, config.NETWORK_MIN_NODES_HARD_STOP)
+                    report_t1["label"] = f"{lbl_t1}"
+                    report_t2["label"] = f"{lbl_t2}"
                     report_data["temporal"].update(
                         {
-                            "timepoint_a": f"{int(t1)}h",
-                            "timepoint_b": f"{int(t2)}h",
+                            "timepoint_a": f"{lbl_t1}",
+                            "timepoint_b": f"{lbl_t2}",
                             "network_t1": report_t1,
                             "network_t2": report_t2,
                         }
@@ -718,18 +733,18 @@ def run(config: LeanConfig) -> None:
                     shared_t, only_t1, only_t2, union_t = compute_rewiring(
                         edges_t1,
                         edges_t2,
-                        label_a=f"{int(t1)}h",
-                        label_b=f"{int(t2)}h",
+                        label_a=f"{lbl_t1}",
+                        label_b=f"{lbl_t2}",
                         sign_switch_min_r=config.SIGN_SWITCH_MIN_R,
                     )
                     rewiring_summary_t, rewiring_nodes_t = summarize_rewiring(
                         union_t,
-                        label_a=f"{int(t1)}h",
-                        label_b=f"{int(t2)}h",
+                        label_a=f"{lbl_t1}",
+                        label_b=f"{lbl_t2}",
                     )
                     shared_t.to_csv(rew_time_out / "edges_shared.csv", index=False)
-                    only_t1.to_csv(rew_time_out / f"edges_{int(t1)}h_only.csv", index=False)
-                    only_t2.to_csv(rew_time_out / f"edges_{int(t2)}h_only.csv", index=False)
+                    only_t1.to_csv(rew_time_out / f"edges_{lbl_t1}_only.csv", index=False)
+                    only_t2.to_csv(rew_time_out / f"edges_{lbl_t2}_only.csv", index=False)
                     union_t.to_csv(rew_time_out / "edges_union_with_stats.csv", index=False)
                     rewiring_summary_t.to_csv(rew_time_out / "rewiring_summary.csv", index=False)
                     rewiring_nodes_t.to_csv(rew_time_out / "rewiring_node_summary.csv", index=False)

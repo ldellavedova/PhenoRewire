@@ -176,9 +176,13 @@ class LeanConfig(BaseModel):
 
     @field_validator("OUTDIR")
     @classmethod
-    def _ensure_outdir(cls, v: Path) -> Path:
+    def _normalize_outdir(cls, v: Path) -> Path:
+        # Validation must not touch the filesystem: a config that fails on a later
+        # field would otherwise leave an empty output directory behind.  run()
+        # creates OUTDIR when it actually starts.
         v = Path(v)
-        v.mkdir(parents=True, exist_ok=True)
+        if v.exists() and not v.is_dir():
+            raise ValueError(f"OUTDIR exists but is not a directory: {v}")
         return v
 
     @field_validator("ANALYSIS_MODE")
@@ -231,7 +235,7 @@ class LeanConfig(BaseModel):
         return v
 
     @field_validator(
-        "REPORT_TOP_N", "NETWORK_MIN_EDGES", "SELECTION_MIN_FEATURES", "RANDOM_SEED",
+        "REPORT_TOP_N", "NETWORK_MIN_EDGES", "SELECTION_MIN_FEATURES",
         "MIN_FEATURES_HARD_STOP", "NETWORK_MIN_EDGES_HARD_STOP", "NETWORK_MIN_NODES_HARD_STOP",
     )
     @classmethod
@@ -239,6 +243,15 @@ class LeanConfig(BaseModel):
         v = int(v)
         if v < 1:
             raise ValueError("Value must be >= 1.")
+        return v
+
+    @field_validator("RANDOM_SEED")
+    @classmethod
+    def _v_seed(cls, v: int) -> int:
+        # 0 is a perfectly ordinary seed; only negative values are rejected.
+        v = int(v)
+        if v < 0:
+            raise ValueError("RANDOM_SEED must be >= 0.")
         return v
 
     @field_validator("NETWORK_MAX_DENSITY", "NETWORK_ABS_THRESHOLD_FLOOR", "NETWORK_FDR_ALPHA_CEILING")
