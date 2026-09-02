@@ -301,20 +301,71 @@ def run(config: LeanConfig) -> None:
     X_corr = X_corr.loc[:, samp_ids]
 
     unique_groups = sorted(meta2["group"].unique())
-    can_run_temporal = bool(config.TEMPORAL_CORRELATION.enabled)
 
     # phenotype direction
     ref_group = getattr(config, "PHENO_GROUP_REF", None)
     case_group = getattr(config, "PHENO_GROUP_CASE", None)
 
-    can_run_pheno = len(unique_groups) == 2
-    if requested_mode == "phenotype":
-        can_run_temporal = False
-    elif requested_mode == "temporal":
-        can_run_pheno = False
-    elif requested_mode == "both":
-        can_run_pheno = len(unique_groups) == 2
-        can_run_temporal = bool(config.TEMPORAL_CORRELATION.enabled)
+    wants_pheno = requested_mode in {"auto", "phenotype", "both"}
+    wants_temporal = (
+        requested_mode in {"auto", "temporal", "both"}
+        and bool(config.TEMPORAL_CORRELATION.enabled)
+    )
+
+    # When the config names the two groups to contrast, honour that choice instead
+    # of refusing to run because a third group also has samples.
+    if wants_pheno and len(unique_groups) > 2 and ref_group is not None and case_group is not None:
+        contrast = [str(ref_group), str(case_group)]
+        missing = [g for g in contrast if g not in unique_groups]
+        if missing:
+            raise ValueError(
+                f"PHENO_GROUP_REF/CASE name group(s) with no samples: {missing}. "
+                f"Groups with samples after filtering: {unique_groups}."
+            )
+        temporal_group = str(config.TEMPORAL_CORRELATION.phenotype or "")
+        if wants_temporal and temporal_group and temporal_group not in contrast:
+            raise ValueError(
+                f"Cannot restrict the phenotype contrast to {contrast}: "
+                f"TEMPORAL_CORRELATION.phenotype='{temporal_group}' lies outside it, so the "
+                "temporal analysis would lose its samples.\n"
+                "To resolve: run the two analyses as separate jobs, or narrow GROUP_DEFINITION "
+                "so only the groups you need match samples."
+            )
+        dropped = [g for g in unique_groups if g not in contrast]
+        logger.info(
+            "PHENO_GROUP_REF/CASE select the contrast '%s' vs '%s'; ignoring %d other group(s): %s",
+            contrast[0], contrast[1], len(dropped), dropped,
+        )
+        meta2 = meta2[meta2["group"].isin(contrast)].copy()
+        samp_ids = meta2[config.META_SAMPLE_COL].astype(str).tolist()
+        X_corr = X_corr.loc[:, samp_ids]
+        unique_groups = sorted(meta2["group"].unique())
+
+    can_run_pheno = wants_pheno and len(unique_groups) == 2
+    can_run_temporal = wants_temporal
+
+    # An analysis the user asked for explicitly must never be skipped in silence:
+    # a run that produces no results has to fail loudly, not exit 0 with an empty report.
+    if requested_mode in {"phenotype", "both"} and not can_run_pheno:
+        raise ValueError(
+            f"ANALYSIS_MODE='{requested_mode}' requires exactly two groups with samples, but "
+            f"{len(unique_groups)} group(s) remain after filtering: {unique_groups}.\n"
+            "To resolve: set PHENO_GROUP_REF and PHENO_GROUP_CASE to the two groups you want "
+            "to contrast, or narrow GROUP_DEFINITION so only those two match samples."
+        )
+    if requested_mode in {"temporal", "both"} and not can_run_temporal:
+        raise ValueError(
+            f"ANALYSIS_MODE='{requested_mode}' requires TEMPORAL_CORRELATION.enabled: true "
+            "in the config."
+        )
+    if requested_mode == "auto" and not (can_run_pheno or can_run_temporal):
+        raise ValueError(
+            "ANALYSIS_MODE='auto' found nothing to run: the phenotype contrast needs exactly "
+            f"two groups with samples (found {len(unique_groups)}: {unique_groups}), and "
+            "TEMPORAL_CORRELATION is not enabled.\n"
+            "To resolve: set PHENO_GROUP_REF/PHENO_GROUP_CASE, narrow GROUP_DEFINITION, or "
+            "enable TEMPORAL_CORRELATION."
+        )
 
     # Sample size guards — applied to all groups that will be used
     _check_group_sample_sizes(meta2["group"])
@@ -355,8 +406,11 @@ def run(config: LeanConfig) -> None:
             {"executed": True, "ref_group": ref_group, "case_group": case_group}
         )
     else:
+        # Only reachable in 'auto' mode with a temporal analysis to fall back on;
+        # every other combination has already raised above.
         logger.info(
-            "Phenotype comparison disabled for this run because %d usable groups remain after filtering: %s",
+            "Phenotype comparison not run: %d group(s) with samples after filtering (%s); "
+            "continuing with the temporal analysis.",
             len(unique_groups),
             unique_groups,
         )

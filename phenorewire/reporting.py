@@ -44,10 +44,31 @@ def _bullet_lines(records: list[dict[str, Any]], primary_col: str) -> list[str]:
     return lines
 
 
+def _rewiring_graphml_produced(report: dict[str, Any]) -> bool:
+    """True when this run actually wrote a rewiring network, not just planned one."""
+    return any(
+        str(path).endswith(".graphml")
+        for path in report.get("deliverables", [])
+    )
+
+
 def _collect_warnings(report: dict[str, Any]) -> list[str]:
     warnings: list[str] = []
     phenotype = report.get("phenotype", {})
     temporal = report.get("temporal", {})
+
+    if not phenotype.get("executed") and not temporal.get("executed"):
+        warnings.append(
+            "⚠ NO ANALYSIS WAS EXECUTED. Neither the phenotype comparison nor the temporal "
+            "analysis ran, so this report contains no results. Check ANALYSIS_MODE, "
+            "GROUP_DEFINITION, and TEMPORAL_CORRELATION in your config."
+        )
+    elif not _rewiring_graphml_produced(report):
+        warnings.append(
+            "⚠ NO REWIRING NETWORK WAS PRODUCED. Feature selection ran but did not yield "
+            "enough features to build and compare networks, so the rewiring outputs listed "
+            "below were not written."
+        )
 
     if phenotype.get("executed") and int(phenotype.get("n_selected_features", 0)) == 0:
         warnings.append("Phenotype comparison selected no significant features under the current thresholds.")
@@ -165,11 +186,12 @@ def export_final_report(report: dict[str, Any], outdir: Path) -> None:
     lines.append(f"- n_features_after_preprocessing: {report.get('n_features_after_preprocessing', 'NA')}")
     lines.append("")
     lines.append("## Executive Summary")
-    for line in _collect_takeaways(report):
+    takeaways = _collect_takeaways(report)
+    for line in takeaways:
         lines.append(f"- {line}")
     warning_lines = _collect_warnings(report)
-    if not _collect_takeaways(report):
-        lines.append("- Run completed successfully.")
+    if not takeaways:
+        lines.append("- No analysis produced results in this run — see Warnings below.")
     lines.append("")
 
     if warning_lines:
@@ -267,16 +289,22 @@ def export_final_report(report: dict[str, Any], outdir: Path) -> None:
 
     lines.append("## Start Here")
     lines.append("")
-    lines.append("Open these four files in order:")
-    lines.append("")
-    lines.append("| # | File | What it tells you |")
-    lines.append("| --- | --- | --- |")
-    lines.append(f"| 1 | `{_graphml_name}` | Full rewiring network — open in Cytoscape; colour edges by `state`, size nodes by `rewiring_score` |")
-    lines.append("| 2 | `triage/priority_rewired_nodes.csv` | Ranked list of the most rewired metabolites; start with the top 10–15 rows |")
-    lines.append("| 3 | `triage/rewiring_summary.csv` | One-line global summary: how many edges are shared, state-specific, or sign-switched |")
-    lines.append("| 4 | `triage/final_report.md` | This file — narrative summary of the full run |")
-    lines.append("")
-    lines.append("Everything else under `network_*/`, `phenotype_selection/`, and `rewiring_*/` is supporting detail.")
+    if _rewiring_graphml_produced(report):
+        lines.append("Open these four files in order:")
+        lines.append("")
+        lines.append("| # | File | What it tells you |")
+        lines.append("| --- | --- | --- |")
+        lines.append(f"| 1 | `{_graphml_name}` | Full rewiring network — open in Cytoscape; colour edges by `state`, size nodes by `rewiring_score` |")
+        lines.append("| 2 | `triage/priority_rewired_nodes.csv` | Ranked list of the most rewired metabolites; start with the top 10–15 rows |")
+        lines.append("| 3 | `triage/rewiring_summary.csv` | One-line global summary: how many edges are shared, state-specific, or sign-switched |")
+        lines.append("| 4 | `triage/final_report.md` | This file — narrative summary of the full run |")
+        lines.append("")
+        lines.append("Everything else under `network_*/`, `phenotype_selection/`, and `rewiring_*/` is supporting detail.")
+    else:
+        lines.append(
+            "This run produced no rewiring network, so there is nothing to open in Cytoscape. "
+            "Read the Warnings section above, adjust the config, and re-run."
+        )
     lines.append("")
     t_w = float(report.get("triage_topology_weight", 0.7))
     s_w = float(report.get("triage_selection_weight", 0.3))
@@ -343,10 +371,15 @@ def export_final_report(report: dict[str, Any], outdir: Path) -> None:
     lines.append("")
     lines.append("## Next Steps")
     lines.append("")
-    lines.append("1. **Targeted validation**: consider functional assays or literature lookup for the top 10 priority features.")
-    lines.append("2. **Sign-switch edges**: metabolites connected by a sign-switch edge may indicate condition-specific metabolic competition; these are strong candidates for follow-up.")
-    lines.append(f"3. **Cytoscape**: load `{_graphml_name}`, colour edges by `state`, size nodes by `rewiring_score`.")
-    lines.append("4. **Interpretation caveat**: PhenoRewire is a hypothesis-generating tool; results are correlative, not causal.")
+    if _rewiring_graphml_produced(report):
+        lines.append("1. **Targeted validation**: consider functional assays or literature lookup for the top 10 priority features.")
+        lines.append("2. **Sign-switch edges**: metabolites connected by a sign-switch edge may indicate condition-specific metabolic competition; these are strong candidates for follow-up.")
+        lines.append(f"3. **Cytoscape**: load `{_graphml_name}`, colour edges by `state`, size nodes by `rewiring_score`.")
+        lines.append("4. **Interpretation caveat**: PhenoRewire is a hypothesis-generating tool; results are correlative, not causal.")
+    else:
+        lines.append("1. **Check the Warnings above** — they name the step that produced no output.")
+        lines.append("2. **Loosen the thresholds**: raise `FDR_ALPHA`, lower `CORR_ABS_THRESHOLD`, or enable `ADAPTIVE_SELECTION_THRESHOLDS`.")
+        lines.append("3. **Check the inputs**: confirm `GROUP_DEFINITION` matches your metadata values and that each group has enough samples.")
     lines.append("")
     lines.append("## All Output Files")
     for path in report_portable.get("deliverables", []):
