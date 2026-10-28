@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="https://doi.org/10.64898/2026.08.29.748013"><img alt="bioRxiv preprint" src="https://img.shields.io/badge/bioRxiv-10.64898%2F2026.08.29.748013-b31b1b"/></a>
+  <a href="https://doi.org/10.5281/zenodo.23734208"><img alt="Zenodo DOI" src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.23734208-1682D4"/></a>
   <a href="CHANGELOG.md"><img alt="Version 0.2.0" src="https://img.shields.io/badge/version-0.2.0-blue"/></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"/></a>
   <a href="https://www.python.org/downloads/"><img alt="Python 3.9+" src="https://img.shields.io/badge/python-3.9%2B-blue"/></a>
@@ -245,7 +246,7 @@ If you use PhenoRewire, please cite:
 }
 ```
 
-To cite a specific software version, use **Cite this repository** on GitHub or [`CITATION.cff`](CITATION.cff). This README describes v0.2.0.
+Every release is archived on Zenodo. [10.5281/zenodo.23734208](https://doi.org/10.5281/zenodo.23734208) always resolves to the most recent version; v0.2.0, which this README describes, is [10.5281/zenodo.23734209](https://doi.org/10.5281/zenodo.23734209). The full software metadata is in [`CITATION.cff`](CITATION.cff), also reachable through **Cite this repository** on GitHub.
 
 ---
 

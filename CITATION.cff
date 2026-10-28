@@ -17,6 +17,7 @@ version: "0.2.0"
 date-released: "2026-10-28"
 url: "https://github.com/ldellavedova/PhenoRewire"
 license: MIT
+doi: "10.5281/zenodo.23734208"
 keywords:
   - metabolomics
   - network rewiring
@@ -63,4 +64,3 @@ preferred-citation:
   doi: "10.64898/2026.08.29.748013"
   url: "https://www.biorxiv.org/content/10.64898/2026.08.29.748013v1"
 # TODO: replace preferred-citation with the journal reference once the paper is published.
-# TODO: add a Zenodo DOI here (as `doi:`) if the repository is archived for versioned citation.
