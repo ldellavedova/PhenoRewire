@@ -5,7 +5,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [0.2.0] — unreleased
+## [0.2.0] — 2026-10-28
 
 Every network and every comparison is now reported against chance; metabolites
 whose co-variation partners change without a change in abundance are selected
