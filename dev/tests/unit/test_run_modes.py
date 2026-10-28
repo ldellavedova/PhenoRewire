@@ -7,6 +7,7 @@ line, produced no analysis and exited 0 with a report claiming success.
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -55,7 +56,7 @@ def test_phenotype_mode_raises_when_groups_are_not_a_clean_pair(tmp_path: Path) 
         PHENO_GROUP_REF=None,
         PHENO_GROUP_CASE=None,
     )
-    with pytest.raises(ValueError, match="requires exactly two groups"):
+    with pytest.raises(ValueError, match="two groups"):
         run(LeanConfig.from_yaml(cfg))
 
 
@@ -73,16 +74,16 @@ def test_explicit_ref_case_restricts_the_contrast_instead_of_refusing(tmp_path: 
     run(config)
 
     outdir = Path(config.OUTDIR)
-    direction = pd.read_csv(outdir / "phenotype_direction.csv")
-    assert direction.loc[0, "group_ref"] == "RefT1"
-    assert direction.loc[0, "group_case"] == "Case"
+    report_json = json.loads((outdir / "report.json").read_text(encoding="utf-8"))
+    assert report_json["phenotype"]["ref_group"] == "RefT1"
+    assert report_json["phenotype"]["case_group"] == "Case"
 
     # Only the two contrasted groups may contribute samples.
-    used = pd.read_csv(outdir / "rewiring_pheno" / "metadata_used.csv")
+    used = pd.read_csv(outdir / "RefT1_vs_Case" / "details" / "samples_used.csv")
     assert set(used["group"].unique()) == {"RefT1", "Case"}
 
-    report = (outdir / "report" / "final_report.md").read_text(encoding="utf-8")
-    assert "NO ANALYSIS WAS EXECUTED" not in report
+    report = (outdir / "REPORT.md").read_text(encoding="utf-8")
+    assert "No analysis was executed" not in report
 
 
 def test_ref_case_naming_an_absent_group_raises(tmp_path: Path) -> None:
@@ -112,15 +113,15 @@ def test_report_flags_a_run_that_produced_nothing() -> None:
                 "tool_name": "PhenoRewire",
                 "analysis_mode": "auto",
                 "outdir": str(outdir),
-                "deliverables": [str(outdir / "report" / "final_report.md")],
+                "deliverables": [str(outdir / "REPORT.md")],
                 "phenotype": {"executed": False},
                 "temporal": {"executed": False},
             },
             outdir,
         )
-        text = (outdir / "report" / "final_report.md").read_text(encoding="utf-8")
+        text = (outdir / "REPORT.md").read_text(encoding="utf-8")
 
-    assert "NO ANALYSIS WAS EXECUTED" in text
+    assert "No analysis was executed" in text
     assert "Run completed successfully" not in text
     # Must not point the reader at a Cytoscape file that was never written.
-    assert "rewiring_network_phenotype.graphml" not in text
+    assert "rewiring_network.graphml" not in text

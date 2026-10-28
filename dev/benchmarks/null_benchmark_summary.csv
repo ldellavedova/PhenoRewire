@@ -1,0 +1,121 @@
+scenario,truth,n_per_state,method,reps,frac_comparisons_significant,mean_pairs_called,pair_recall,pair_precision,mean_obs_over_null,feature_recall,feature_precision,n_selected,selected_recall,selected_precision,connectivity_only_selected,connectivity_only_true,median_seconds
+A,mean shift only,5,da,20,,,,,,,,0.000,,,,,0.182
+A,mean shift only,5,dgca,20,1.0,361.600,,0.000,,,,,,,,,10.280
+A,mean shift only,5,diffcorr,20,1.0,24.750,,0.000,,,,,,,,,10.477
+A,mean shift only,5,phenorewire,20,0.0,0.000,,,,,,0.000,,,,,1.665
+A,mean shift only,5,phenorewire_union,20,0.0,0.000,,,,,,0.000,,,0.000,0.000,1.345
+A,mean shift only,6,da,20,,,,,,,,0.000,,,,,0.220
+A,mean shift only,6,dgca,20,1.0,73.900,,0.000,,,,,,,,,10.076
+A,mean shift only,6,diffcorr,20,1.0,11.400,,0.000,,,,,,,,,12.357
+A,mean shift only,6,phenorewire,20,0.0,0.000,,,,,,0.000,,,,,1.671
+A,mean shift only,6,phenorewire_union,20,0.0,0.000,,,,,,0.000,,,0.000,0.000,1.537
+A,mean shift only,10,da,20,,,,,,,,4.400,,0.000,,,0.193
+A,mean shift only,10,dgca,20,0.35,0.700,,0.000,,,,,,,,,10.274
+A,mean shift only,10,diffcorr,20,0.45,1.150,,0.000,,,,,,,,,14.838
+A,mean shift only,10,phenorewire,20,0.0,14.350,,0.000,0.788,,,4.950,,,,,1.750
+A,mean shift only,10,phenorewire_union,20,0.0,14.350,,0.000,0.788,,,4.950,,0.000,0.000,0.000,1.449
+A,mean shift only,14,da,20,,,,,,,,7.100,,0.000,,,0.208
+A,mean shift only,14,dgca,20,0.25,0.300,,0.000,,,,,,,,,11.249
+A,mean shift only,14,diffcorr,20,0.35,0.500,,0.000,,,,,,,,,13.306
+A,mean shift only,14,phenorewire,20,0.0,5.350,,0.000,0.558,,,7.500,,,,,1.789
+A,mean shift only,14,phenorewire_union,20,0.0,5.350,,0.000,0.558,,,7.500,,0.000,0.000,0.000,2.487
+A,mean shift only,20,da,20,,,,,,,,14.500,,0.000,,,0.211
+A,mean shift only,20,dgca,20,0.2,0.300,,0.000,,,,,,,,,10.585
+A,mean shift only,20,diffcorr,20,0.25,0.400,,0.000,,,,,,,,,14.341
+A,mean shift only,20,phenorewire,20,0.0,7.250,,0.000,0.990,,,14.150,,,,,2.307
+A,mean shift only,20,phenorewire_union,20,0.0,7.250,,0.000,0.990,,,14.200,,0.000,0.050,0.000,4.527
+A,mean shift only,25,da,20,,,,,,,,18.250,,0.000,,,0.204
+A,mean shift only,25,dgca,20,0.1,0.100,,0.000,,,,,,,,,10.441
+A,mean shift only,25,diffcorr,20,0.1,0.100,,0.000,,,,,,,,,14.391
+A,mean shift only,25,phenorewire,20,0.0,3.300,,0.000,0.247,,,17.850,,,,,2.699
+A,mean shift only,25,phenorewire_union,20,0.0,3.300,,0.000,0.247,,,17.900,,0.000,0.050,0.000,4.798
+B,"loss of correlation only, marginals identical",5,da,20,,,,,,,,0.000,0.000,,,,0.192
+B,"loss of correlation only, marginals identical",5,dgca,20,1.0,365.850,0.024,0.012,,,,,,,,,10.932
+B,"loss of correlation only, marginals identical",5,diffcorr,20,1.0,26.200,0.009,0.067,,,,,,,,,9.730
+B,"loss of correlation only, marginals identical",5,phenorewire,20,0.0,0.000,0.000,,,0.000,,0.000,,,,,0.847
+B,"loss of correlation only, marginals identical",5,phenorewire_union,20,0.0,0.000,0.000,,,0.000,,0.000,0.000,,0.000,0.000,1.481
+B,"loss of correlation only, marginals identical",6,da,20,,,,,,,,0.000,0.000,,,,0.188
+B,"loss of correlation only, marginals identical",6,dgca,20,1.0,66.750,0.013,0.037,,,,,,,,,12.067
+B,"loss of correlation only, marginals identical",6,diffcorr,20,1.0,12.150,0.005,0.127,,,,,,,,,11.616
+B,"loss of correlation only, marginals identical",6,phenorewire,20,0.0,0.000,0.000,,,0.000,,0.000,,,,,0.827
+B,"loss of correlation only, marginals identical",6,phenorewire_union,20,0.0,0.000,0.000,,,0.000,,0.000,0.000,,0.000,0.000,1.473
+B,"loss of correlation only, marginals identical",10,da,20,,,,,,,,0.000,0.000,,,,0.196
+B,"loss of correlation only, marginals identical",10,dgca,20,0.8,5.900,0.022,0.686,,,,,,,,,12.081
+B,"loss of correlation only, marginals identical",10,diffcorr,20,0.8,10.300,0.036,0.595,,,,,,,,,12.610
+B,"loss of correlation only, marginals identical",10,phenorewire,20,0.0,0.000,0.000,,,0.000,,0.000,,,,,0.853
+B,"loss of correlation only, marginals identical",10,phenorewire_union,20,0.0,0.000,0.000,,,0.000,,0.000,0.000,,0.000,0.000,1.565
+B,"loss of correlation only, marginals identical",14,da,20,,,,,,,,0.050,0.000,0.000,,,0.206
+B,"loss of correlation only, marginals identical",14,dgca,20,0.95,21.200,0.101,0.906,,,,,,,,,9.584
+B,"loss of correlation only, marginals identical",14,diffcorr,20,0.95,30.100,0.137,0.867,,,,,,,,,12.738
+B,"loss of correlation only, marginals identical",14,phenorewire,20,0.0,0.000,0.000,,,0.000,,0.000,,,,,1.589
+B,"loss of correlation only, marginals identical",14,phenorewire_union,20,0.9,107.350,0.527,0.947,3.771,0.657,0.975,14.350,0.667,0.943,14.350,13.350,4.246
+B,"loss of correlation only, marginals identical",20,da,20,,,,,,,,0.000,0.000,,,,0.214
+B,"loss of correlation only, marginals identical",20,dgca,20,1.0,49.350,0.243,0.941,,,,,,,,,10.963
+B,"loss of correlation only, marginals identical",20,diffcorr,20,1.0,61.300,0.293,0.912,,,,,,,,,12.085
+B,"loss of correlation only, marginals identical",20,phenorewire,20,0.0,0.000,0.000,,,0.000,,0.000,,,,,1.663
+B,"loss of correlation only, marginals identical",20,phenorewire_union,20,1.0,159.800,0.832,0.989,3.999,0.920,0.992,19.250,0.920,0.959,19.250,18.400,4.554
+B,"loss of correlation only, marginals identical",25,da,20,,,,,,,,0.000,0.000,,,,0.175
+B,"loss of correlation only, marginals identical",25,dgca,20,1.0,116.200,0.579,0.950,,,,,,,,,9.489
+B,"loss of correlation only, marginals identical",25,diffcorr,20,1.0,130.100,0.632,0.928,,,,,,,,,13.168
+B,"loss of correlation only, marginals identical",25,phenorewire,20,0.0,0.000,0.000,,,0.000,,0.000,,,,,1.722
+B,"loss of correlation only, marginals identical",25,phenorewire_union,20,1.0,188.200,0.981,0.991,4.131,0.995,0.988,21.250,0.995,0.940,21.250,19.900,4.530
+D,"mean shift and loss of correlation, same block",5,da,20,,,,,,,,0.000,0.000,,,,0.209
+D,"mean shift and loss of correlation, same block",5,dgca,20,1.0,365.800,0.027,0.014,,,,,,,,,10.009
+D,"mean shift and loss of correlation, same block",5,diffcorr,20,1.0,25.250,0.009,0.089,,,,,,,,,14.835
+D,"mean shift and loss of correlation, same block",5,phenorewire,20,0.0,0.000,0.000,,,0.000,,0.000,,,,,1.224
+D,"mean shift and loss of correlation, same block",5,phenorewire_union,20,0.0,0.000,0.000,,,0.000,,0.000,0.000,,0.000,0.000,1.482
+D,"mean shift and loss of correlation, same block",6,da,20,,,,,,,,0.450,0.020,0.889,,,0.201
+D,"mean shift and loss of correlation, same block",6,dgca,20,1.0,74.050,0.026,0.062,,,,,,,,,10.861
+D,"mean shift and loss of correlation, same block",6,diffcorr,20,1.0,16.450,0.017,0.159,,,,,,,,,12.627
+D,"mean shift and loss of correlation, same block",6,phenorewire,20,0.0,0.000,0.000,,,0.000,,0.000,,,,,1.092
+D,"mean shift and loss of correlation, same block",6,phenorewire_union,20,0.0,0.000,0.000,,,0.000,,0.000,0.000,,0.000,0.000,1.507
+D,"mean shift and loss of correlation, same block",10,da,20,,,,,,,,1.600,0.077,0.971,,,0.217
+D,"mean shift and loss of correlation, same block",10,dgca,20,0.7,5.900,0.022,0.665,,,,,,,,,10.672
+D,"mean shift and loss of correlation, same block",10,diffcorr,20,0.8,9.000,0.029,0.555,,,,,,,,,12.559
+D,"mean shift and loss of correlation, same block",10,phenorewire,20,0.15,5.800,0.031,1.000,14.145,0.070,1.000,1.800,,,,,0.982
+D,"mean shift and loss of correlation, same block",10,phenorewire_union,20,0.15,5.800,0.031,1.000,14.145,0.070,1.000,1.800,0.087,0.958,0.000,0.000,1.617
+D,"mean shift and loss of correlation, same block",14,da,20,,,,,,,,5.800,0.275,0.952,,,0.224
+D,"mean shift and loss of correlation, same block",14,dgca,20,0.85,21.050,0.099,0.748,,,,,,,,,10.155
+D,"mean shift and loss of correlation, same block",14,diffcorr,20,0.95,28.150,0.129,0.767,,,,,,,,,12.072
+D,"mean shift and loss of correlation, same block",14,phenorewire,20,0.45,27.100,0.141,0.993,12.771,0.253,0.993,6.050,,,,,1.044
+D,"mean shift and loss of correlation, same block",14,phenorewire_union,20,0.95,88.950,0.457,0.978,9.450,0.662,0.983,14.450,0.693,0.965,8.400,8.150,4.130
+D,"mean shift and loss of correlation, same block",20,da,20,,,,,,,,12.150,0.580,0.952,,,0.215
+D,"mean shift and loss of correlation, same block",20,dgca,20,1.0,70.300,0.348,0.939,,,,,,,,,10.221
+D,"mean shift and loss of correlation, same block",20,diffcorr,20,1.0,82.600,0.398,0.912,,,,,,,,,12.880
+D,"mean shift and loss of correlation, same block",20,phenorewire,20,0.8,85.300,0.449,1.000,6.843,0.580,1.000,12.250,,,,,2.252
+D,"mean shift and loss of correlation, same block",20,phenorewire_union,20,1.0,184.000,0.958,0.989,6.848,0.988,0.990,20.650,0.988,0.958,8.400,8.000,4.726
+D,"mean shift and loss of correlation, same block",25,da,20,,,,,,,,16.900,0.805,0.959,,,0.212
+D,"mean shift and loss of correlation, same block",25,dgca,20,1.0,106.800,0.533,0.951,,,,,,,,,10.280
+D,"mean shift and loss of correlation, same block",25,diffcorr,20,1.0,119.650,0.585,0.933,,,,,,,,,11.875
+D,"mean shift and loss of correlation, same block",25,phenorewire,20,0.95,133.500,0.702,1.000,8.835,0.802,1.000,16.850,,,,,2.308
+D,"mean shift and loss of correlation, same block",25,phenorewire_union,20,1.0,189.200,0.986,0.991,8.253,1.000,0.993,21.650,1.000,0.927,4.800,3.950,4.920
+N,no difference,5,da,20,,,,,,,,0.000,,,,,0.257
+N,no difference,5,dgca,20,1.0,365.900,,0.000,,,,,,,,,11.829
+N,no difference,5,diffcorr,20,1.0,23.700,,0.000,,,,,,,,,10.149
+N,no difference,5,phenorewire,20,0.0,0.000,,,,,,0.000,,,,,1.716
+N,no difference,5,phenorewire_union,20,0.0,0.000,,,,,,0.000,,,0.000,0.000,1.771
+N,no difference,6,da,20,,,,,,,,0.000,,,,,0.194
+N,no difference,6,dgca,20,1.0,64.700,,0.000,,,,,,,,,10.765
+N,no difference,6,diffcorr,20,1.0,13.350,,0.000,,,,,,,,,15.881
+N,no difference,6,phenorewire,20,0.0,0.000,,,,,,0.000,,,,,1.722
+N,no difference,6,phenorewire_union,20,0.0,0.000,,,,,,0.000,,,0.000,0.000,1.514
+N,no difference,10,da,20,,,,,,,,0.000,,,,,0.212
+N,no difference,10,dgca,20,0.55,1.100,,0.000,,,,,,,,,10.014
+N,no difference,10,diffcorr,20,0.65,1.450,,0.000,,,,,,,,,17.272
+N,no difference,10,phenorewire,20,0.0,0.000,,,,,,0.000,,,,,1.870
+N,no difference,10,phenorewire_union,20,0.0,0.000,,,,,,0.000,,,0.000,0.000,1.540
+N,no difference,14,da,20,,,,,,,,0.000,,,,,0.233
+N,no difference,14,dgca,20,0.2,0.300,,0.000,,,,,,,,,10.264
+N,no difference,14,diffcorr,20,0.2,0.300,,0.000,,,,,,,,,17.486
+N,no difference,14,phenorewire,20,0.0,0.000,,,,,,0.000,,,,,2.048
+N,no difference,14,phenorewire_union,20,0.0,0.000,,,,,,0.100,,0.000,0.100,0.000,2.428
+N,no difference,20,da,20,,,,,,,,0.000,,,,,0.232
+N,no difference,20,dgca,20,0.1,0.150,,0.000,,,,,,,,,10.136
+N,no difference,20,diffcorr,20,0.1,0.150,,0.000,,,,,,,,,20.020
+N,no difference,20,phenorewire,20,0.0,0.000,,,,,,0.000,,,,,2.312
+N,no difference,20,phenorewire_union,20,0.0,0.000,,,,,,0.150,,0.000,0.150,0.000,2.457
+N,no difference,25,da,20,,,,,,,,0.100,,0.000,,,0.200
+N,no difference,25,dgca,20,0.05,0.050,,0.000,,,,,,,,,10.662
+N,no difference,25,diffcorr,20,0.05,0.050,,0.000,,,,,,,,,20.352
+N,no difference,25,phenorewire,20,0.0,0.000,,,,,,0.000,,,,,2.488
+N,no difference,25,phenorewire_union,20,0.0,0.000,,,,,,0.000,,,0.000,0.000,2.291

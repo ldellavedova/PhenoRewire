@@ -32,13 +32,10 @@ The integrated workflow depends on the following inputs.
 
 ### PhenoRewire outputs
 
-- `priority_rewired_nodes.csv`
-- a rewiring GraphML produced by the same run
+For each comparison of the run (each `<comparison>/` folder):
 
-If `PHENOREWIRE_NETWORK` is not set in the config, the CLI automatically looks for:
-
-- `triage/rewiring_network_phenotype.graphml`
-- or `triage/rewiring_network_temporal.graphml`
+- `rewired_metabolites.csv`, whose top `ANNOTATION_TOP_N` metabolites are expanded
+- `rewiring_network.graphml`, unless `PHENOREWIRE_NETWORK` names another rewiring network
 
 ### External molecular network GraphML
 
@@ -96,7 +93,7 @@ These are read from the main PhenoRewire YAML config.
 
 The integrated workflow writes files under:
 
-- `results/<run>/2dnetwork/`
+- `OUTDIR/<comparison>/molecular_network/`, one folder per comparison
 
 ### `annotation_summary.csv`
 

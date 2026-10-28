@@ -21,8 +21,8 @@ def test_final_report_contains_summary_and_warnings(tmp_path: Path) -> None:
         "temporal": {"executed": False},
     }
     export_final_report(report, tmp_path)
-    md = (tmp_path / "report" / "final_report.md").read_text(encoding="utf-8")
-    payload = json.loads((tmp_path / "report" / "final_report.json").read_text(encoding="utf-8"))
-    assert "Executive Summary" in md
-    assert "Warnings" in md
+    md = (tmp_path / "REPORT.md").read_text(encoding="utf-8")
+    payload = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
+    assert "## Result" in md
+    assert "## Warnings" in md
     assert payload["tool_name"] == "PhenoRewire"

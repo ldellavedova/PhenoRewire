@@ -30,7 +30,7 @@ META_TIME_COL: "timepoint"
 MIN_NONZERO_INTENSITY: 1
 MIN_PRESENCE_GLOBAL: 0.35
 LOG_TRANSFORM: true
-NORM_METHOD: "median"
+NORM_METHOD: "median"              # or pqn (urine, sparse data), none (already normalised); see docs/prepare_your_data.md
 
 FDR_ALPHA: 0.05
 N_PERMUTATIONS_PHENO: 1000

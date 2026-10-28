@@ -4,7 +4,7 @@
 #   python 2d_network/multilayer_2d_notebook.py --config 2d_network/2d_figure_phenotype.yaml
 #
 # Required inputs (place files in the input/ folders):
-#   top_graphml     : rewiring_network.graphml from PhenoRewire (triage/ folder)
+#   top_graphml     : rewiring_network.graphml from a PhenoRewire phenotype run (in OUTDIR/<comparison>/)
 #   chemical_graphml: chemical similarity network (SpecReBoot or GNPS FBMN)
 #   annotation_table: CSV with feature annotations (consensus_annotation, NPC#pathway)
 #

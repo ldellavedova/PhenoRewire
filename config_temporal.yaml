@@ -1,45 +1,42 @@
-# Template configuration for a temporal comparison within one phenotype.
-# Replace the placeholder paths and group filters with your own dataset.
-#
-# Note: the bundled synthetic data in data/ was designed for phenotype comparisons
-# and does not contain a meaningful temporal signal. This config is intended as a
-# starting template for your own time-course dataset, not as a runnable demo.
-# For a runnable demo, use config_phenotype.yaml instead.
+# Example configuration for a temporal comparison: two timepoints within one group.
+# Runs on the bundled synthetic time course (20 subjects at 0, 4 and 10 h):
+#   phenorewire --config config_temporal.yaml
+# Replace the paths, the group and the timepoints with your own dataset.
 
-DATA_MATRIX: "data/feature_table.csv"
-METADATA: "data/metadata.csv"
+DATA_MATRIX: "data/temporal_feature_table.csv"
+METADATA: "data/temporal_metadata.csv"
 OUTDIR: "results/temporal_example"
 ANALYSIS_MODE: "temporal"
 
 GROUP_DEFINITION:
-  TargetPhenotype:
-    group_label: "reference"   # change to your phenotype of interest
+  Exposed:
+    cohort: "exposed"
 
-TIMEPOINT_T1: 1
-TIMEPOINT_T2: 2
+# The two networks compare these timepoints; selection uses every timepoint of the group.
+TIMEPOINT_T1: 0
+TIMEPOINT_T2: 10
 
 FEATURE_ID_COL: "feature_id"
 MZ_COL: "mz"
 RT_COL: "rt"
 NAME_COL: "name"
-INTENSITY_REGEX: "^Sample_"
+INTENSITY_REGEX: "^S\\d+_"
 
 META_SAMPLE_COL: "sample_id"
 META_TIME_COL: "timepoint"
 
 MIN_NONZERO_INTENSITY: 1
-MIN_PRESENCE_GLOBAL: 0.50
+MIN_PRESENCE_GLOBAL: 0.35
 LOG_TRANSFORM: true
-NORM_METHOD: "median"
+NORM_METHOD: "median"              # or pqn (urine, sparse data), none (already normalised); see docs/prepare_your_data.md
 
 FDR_ALPHA: 0.05
-N_PERMUTATIONS_PHENO: 1000
 ADAPTIVE_SELECTION_THRESHOLDS: true
 SELECTION_MIN_FEATURES: 5
 SELECTION_FDR_ALPHA_CEILING: 0.10
 
-CORR_ABS_THRESHOLD: 0.80
-CORR_FDR_ALPHA: 0.01
+CORR_ABS_THRESHOLD: 0.70
+CORR_FDR_ALPHA: 0.05
 REPORT_TOP_N: 15
 ADAPTIVE_NETWORK_THRESHOLDS: true
 NETWORK_MIN_EDGES: 3
@@ -47,16 +44,22 @@ NETWORK_MAX_DENSITY: 0.25
 NETWORK_ABS_THRESHOLD_FLOOR: 0.50
 NETWORK_FDR_ALPHA_CEILING: 0.20
 
+# Hard stops — set permissive here so the included example data runs out of the box.
+NETWORK_MIN_EDGES_HARD_STOP: 1
+NETWORK_MIN_NODES_HARD_STOP: 2
+MIN_FEATURES_HARD_STOP: 2
+
 TEMPORAL_CORRELATION:
   enabled: true
-  phenotype: "TargetPhenotype"
-  time_column: "timepoint"     # must match META_TIME_COL above
+  phenotype: "Exposed"         # a GROUP_DEFINITION name
+  time_column: "timepoint"     # numeric; "10h" also works
   n_permutations: 1000
-  fdr_alpha: 0.01
+  fdr_alpha: 0.05
   min_samples: 3
 
 # Optional 2D molecular network annotation
-# The bundled demo molecular network matches the example feature IDs in data/feature_table.csv.
+# The bundled demo molecular network matches the example feature IDs, so you can run:
+#   phenorewire --config config_temporal.yaml --run-2dnetwork
 SPECREBOOT_NETWORK: "data/example_molecular_network.graphml"
 PHENOREWIRE_NETWORK: null
 MN_HOP_DEPTH: 2

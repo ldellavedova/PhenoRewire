@@ -27,6 +27,7 @@ def temporal_selection(
     min_selected_features: int,
     fdr_alpha_ceiling: float,
     seed: int = 42,
+    permutation_stream: str = "per_feature",
     min_features_hard_stop: int = 5,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, dict]:
     """
@@ -38,9 +39,8 @@ def temporal_selection(
       - X is already preprocessed upstream
 
     Outputs (in outdir):
-      - temporal_features_all.csv
-      - temporal_features_selected.csv
-      - temporal_selection_summary.json
+      - all_features_tested.csv
+      - selection_summary.json
     """
     logger.info("Running temporal correlation selection...")
 
@@ -60,15 +60,16 @@ def temporal_selection(
         mode="Temporal",
         r_col="r_time",
         q_col="q_time",
-        all_filename="temporal_features_all.csv",
-        selected_filename="temporal_features_selected.csv",
-        summary_filename="temporal_selection_summary.json",
+        all_filename="all_features_tested.csv",
+        selected_filename=None,
+        summary_filename="selection_summary.json",
         n_permutations=n_permutations,
         fdr_alpha=fdr_alpha,
         adaptive_fdr=adaptive_fdr,
         min_selected_features=min_selected_features,
         fdr_alpha_ceiling=fdr_alpha_ceiling,
         seed=seed,
+        permutation_stream=permutation_stream,
         min_features_hard_stop=min_features_hard_stop,
         remedy="more time points, fewer features",
     )

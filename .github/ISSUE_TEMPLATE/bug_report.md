@@ -33,8 +33,8 @@ What did you expect to happen?
 
 ## Actual behaviour
 
-What happened instead? If there was an error, paste the full traceback below.
-Re-run with `--log-level DEBUG` for more detail.
+What happened instead? Paste the message below, and attach `OUTDIR/run_info/run.log` and
+`OUTDIR/run_info/data_check.txt` from the run. Re-run with `--log-level DEBUG` to see the full traceback.
 
 ```
 paste error or log output here
@@ -42,4 +42,4 @@ paste error or log output here
 
 ## Input data (if shareable)
 
-Describe the size of your dataset (number of samples, features). If you can share a minimal reproducible example using the bundled demo data, please include the command.
+Describe the size of your dataset (number of samples, features, groups, timepoints): `data_check.txt` has all of it. Please do not attach study data. If the problem also happens with the bundled examples (`config_phenotype.yaml`, `config_temporal.yaml`), include the command.

@@ -12,7 +12,8 @@ When reporting a bug, please include:
 - your operating system and Python version
 - the PhenoRewire version or commit hash (`pip show phenorewire`)
 - the command you ran and the config file used (remove any private data)
-- the relevant log output — re-run with `--log-level DEBUG` for more detail
+- `OUTDIR/run_info/run.log` and `OUTDIR/run_info/data_check.txt` from the run (the full log and the input check), or the output of `--log-level DEBUG`
+- never your data: if the problem needs data to reproduce, try the bundled examples in `data/` first
 
 ---
 
@@ -25,6 +26,7 @@ conda env create -f environment.yml
 conda activate phenorewire
 pip install -e ".[dev]"
 pytest dev/tests/
+ruff check .
 ```
 
 ---
@@ -34,7 +36,7 @@ pytest dev/tests/
 1. Fork the repository and create a branch for your changes.
 2. Install in development mode: `pip install -e ".[dev]"`
 3. Make your changes and add tests in `dev/tests/` where appropriate.
-4. Run the full test suite before submitting: `pytest dev/tests/`
+4. Run the full test suite and the linter before submitting: `pytest dev/tests/` and `ruff check .`; continuous integration gates on both.
 5. Open a pull request with a short description of what you changed and why.
 
 **Guidelines:**

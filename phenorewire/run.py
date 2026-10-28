@@ -1,14 +1,25 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 import logging
-import shutil
+import time
 
 import numpy as np
 import pandas as pd
+import yaml
 
+from . import layout
+from ._version import __version__
+from .checks import (  # noqa: F401  (operating range re-exported for callers of run.py)
+    OPERATING_RANGE_MIN_N,
+    OPERATING_RANGE_RECOMMENDED_N,
+    InputDataError,
+    check_inputs,
+    operating_range,
+)
 from .config import LeanConfig
-from .utils import ensure_dir
+from .console import Steps, add_file_log, has_any_handler, progress, rel, remove_handler, setup_console
 from .preprocessing import prepare_matrices
 from .phenotype_selection import phenotype_selection
 from .networks import (
@@ -20,11 +31,21 @@ from .networks import (
     export_rewiring_network,
     check_louvain_stability,
 )
+from .connectivity import connectivity_selection
+from .nulls import modularity_null, network_edge_null, rewiring_label_null
 from .temporal_selection import temporal_selection
-from .triage import export_network_triage, export_rewiring_triage
-from .reporting import export_final_report
+from .triage import rank_network_nodes, rewired_metabolites
+from .reporting import comparison_verdict, export_final_report
+from .utils import NORM_LABELS, ensure_dir, parse_time_numeric, timepoint_label
 
 logger = logging.getLogger(__name__)
+
+# Selection permutations are drawn from one generator consumed feature by
+# feature (stats.spearman_permutation_test, stream="shared").  This is the
+# scheme every published PhenoRewire analysis was run with, so abundance-based
+# selection reproduces those analyses exactly: v0.2.0 keeps every feature they
+# selected and only adds features through connectivity-based selection.
+PERMUTATION_STREAM = "shared"
 
 
 # ============================================================
@@ -32,36 +53,12 @@ logger = logging.getLogger(__name__)
 # ============================================================
 
 def _setup_logging(level: str = "INFO") -> None:
-    lvl = getattr(logging, str(level).upper(), logging.INFO)
-    logging.basicConfig(
-        level=lvl,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    )
+    setup_console(level)
 
 
 # ============================================================
-# Time helpers
+# Helpers
 # ============================================================
-
-def _parse_time_numeric(series: pd.Series) -> pd.Series:
-    s = series.astype(str).str.strip().str.lower()
-    s = s.str.replace("hours", "", regex=False).str.replace("hour", "", regex=False).str.replace("h", "", regex=False)
-    s = s.str.strip()
-    return pd.to_numeric(s, errors="coerce")
-
-
-def _timepoint_label(t: float) -> str:
-    """Filename-safe label for a timepoint.
-
-    Integer-valued timepoints keep the plain "3h" form.  Fractional ones keep their
-    value with the decimal point spelled out ("0.5" -> "0p5h"), so two distinct
-    timepoints can never collapse onto the same directory name.
-    """
-    t = float(t)
-    if t.is_integer():
-        return f"{int(t)}h"
-    return f"{t:g}".replace("-", "neg").replace(".", "p") + "h"
-
 
 def _subset_samples(meta2: pd.DataFrame, sample_col: str, mask: pd.Series) -> list[str]:
     return meta2.loc[mask, sample_col].astype(str).tolist()
@@ -141,6 +138,123 @@ def _check_group_sample_sizes(
             )
 
 
+def _log_operating_range(label: str, op: dict) -> None:
+    # The input check has already told the user; the log keeps the record.
+    if op["status"] == "below":
+        logger.debug(
+            "%s: %d samples in the smaller state, below the operating range (%d).",
+            label, op["min_n_per_state"], OPERATING_RANGE_MIN_N,
+        )
+    elif op["status"] == "reduced":
+        logger.debug(
+            "%s: %d samples in the smaller state (recommended >= %d).",
+            label, op["min_n_per_state"], OPERATING_RANGE_RECOMMENDED_N,
+        )
+
+
+def _apply_connectivity_selection(
+    config: LeanConfig,
+    abundance_all: pd.DataFrame,
+    abundance_selected: pd.DataFrame,
+    X_a: pd.DataFrame,
+    X_b: pd.DataFrame,
+    outdir: Path,
+    *,
+    q_col: str,
+    label: str,
+) -> tuple[pd.DataFrame, dict]:
+    """Add connectivity-based selection to the abundance-based one, when the data allow.
+
+    ``X_a`` / ``X_b`` hold every preprocessed feature for the two states that
+    will be compared.  Connectivity-based selection runs automatically when both
+    states have at least ``CONNECTIVITY.min_n_per_state`` samples (and the run is
+    not reproducing an earlier version).  Otherwise the abundance selection is
+    returned untouched and the reason is logged and reported.
+
+    When it runs, the returned table holds the features selected by either
+    route, each with ``selection_route`` (abundance / connectivity / both), the
+    connectivity statistics, and ``q_selection``, the smaller of the two
+    q-values, which the triage score uses.
+    """
+    cc = config.CONNECTIVITY
+    n_min = int(min(X_a.shape[1], X_b.shape[1]))
+    meta: dict = {"min_n_per_state": n_min, "required_n": int(cc.min_n_per_state)}
+
+    if n_min < cc.min_n_per_state:
+        msg = (
+            f"{label}: features were selected by abundance only. Selecting by change in "
+            f"co-variation partners needs at least {cc.min_n_per_state} samples in each state, "
+            f"and the smaller state has {n_min}; below that it finds almost nothing in "
+            "simulation and its permutation null is too coarse to trust."
+        )
+        logger.warning("%s", msg)
+        meta.update({"connectivity_run": False, "reason": msg})
+        if len(abundance_selected) < int(config.MIN_FEATURES_HARD_STOP):
+            raise ValueError(
+                f"{label}: only {len(abundance_selected)} feature(s) selected, fewer than "
+                f"MIN_FEATURES_HARD_STOP = {config.MIN_FEATURES_HARD_STOP}."
+            )
+        return abundance_selected, meta
+
+    abundance_ids = set(abundance_selected.index.astype(str))
+    conn_table, conn_summary = connectivity_selection(
+        X_a, X_b,
+        top_k=cc.top_k,
+        n_permutations=cc.n_permutations,
+        fdr_alpha=cc.fdr_alpha,
+        seed=config.RANDOM_SEED,
+    )
+    outdir.mkdir(parents=True, exist_ok=True)
+    conn_table.join(abundance_all[[c for c in ("name", q_col) if c in abundance_all.columns]], how="left") \
+        .to_csv(outdir / "all_features_connectivity.csv")
+    connectivity_ids = set(conn_table.index[conn_table["selected_connectivity"]])
+    meta.update({"connectivity_run": True, **conn_summary})
+
+    chosen = abundance_ids | connectivity_ids
+    order = [f for f in abundance_all.index.astype(str) if f in chosen]
+    out = abundance_all.loc[order].copy()
+    out["selection_route"] = [
+        "both" if (f in abundance_ids and f in connectivity_ids)
+        else "abundance" if f in abundance_ids else "connectivity"
+        for f in order
+    ]
+    q_abund = out[q_col].astype(float) if q_col in out.columns else pd.Series(1.0, index=out.index)
+    out = out.join(conn_table, how="left")
+    q_conn = out["q_connectivity"].astype(float)
+    out["q_selection"] = np.where(
+        out["selection_route"] == "abundance", q_abund,
+        np.where(out["selection_route"] == "connectivity", q_conn, np.fmin(q_abund, q_conn)),
+    )
+
+    counts = out["selection_route"].value_counts()
+    meta.update({
+        "n_selected": int(len(out)),
+        "n_abundance_only": int(counts.get("abundance", 0)),
+        "n_connectivity_only": int(counts.get("connectivity", 0)),
+        "n_both": int(counts.get("both", 0)),
+    })
+    logger.debug(
+        "%s: %d features selected (%d abundance only, %d connectivity only, %d both).",
+        label, meta["n_selected"], meta["n_abundance_only"], meta["n_connectivity_only"], meta["n_both"],
+    )
+    if len(out) < int(config.MIN_FEATURES_HARD_STOP):
+        raise ValueError(
+            f"{label}: only {len(out)} feature(s) selected by abundance and connectivity, fewer than "
+            f"MIN_FEATURES_HARD_STOP = {config.MIN_FEATURES_HARD_STOP}."
+        )
+    return out, meta
+
+
+def _selection_line(n_selected: int, meta: dict, what: str) -> str:
+    if meta.get("connectivity_run"):
+        return (
+            f"{n_selected} metabolites selected: {meta.get('n_abundance_only', 0)} by {what} only, "
+            f"{meta.get('n_connectivity_only', 0)} by change in co-variation partners only, "
+            f"{meta.get('n_both', 0)} by both"
+        )
+    return f"{n_selected} metabolites selected by {what}"
+
+
 def _build_and_export_network(
     selected_features: pd.DataFrame,
     X_subset: pd.DataFrame,
@@ -158,6 +272,8 @@ def _build_and_export_network(
     topology_weight: float = 0.7,
     selection_weight: float = 0.3,
     louvain_stability_check: bool = False,
+    null_permutations: int = 0,
+    null_configuration_models: int = 0,
 ) -> tuple[pd.DataFrame, dict]:
     _, edges_df, threshold_meta = correlation_network(
         X_feat_by_samp=X_subset,
@@ -174,17 +290,14 @@ def _build_and_export_network(
         for key, value in threshold_meta.items():
             network_summary[key] = value
     export_network(nodes_annotated, edges_df, outdir)
-    community_summary.to_csv(outdir / "community_summary.csv", index=False)
+    community_summary.to_csv(outdir / "communities.csv", index=False)
     network_summary.to_csv(outdir / "network_summary.csv", index=False)
-    export_network_triage(
-        nodes_annotated,
-        community_summary,
-        network_summary,
-        outdir,
-        top_n=top_n,
-        topology_weight=topology_weight,
-        selection_weight=selection_weight,
+    # nodes.csv: every node with its metrics and triage score, best first.
+    ranked = rank_network_nodes(
+        nodes_annotated, topology_weight=topology_weight, selection_weight=selection_weight
     )
+    if not ranked.empty:
+        ranked.to_csv(outdir / "nodes.csv", index=False)
 
     louvain_stability_meta: dict = {}
     if louvain_stability_check:
@@ -199,8 +312,6 @@ def _build_and_export_network(
             )
             louvain_stability_meta = {}
 
-    priority_path = outdir / "triage" / "priority_features.csv"
-    priority_df = pd.read_csv(priority_path) if priority_path.exists() else pd.DataFrame()
     summary_row = network_summary.iloc[0].to_dict() if not network_summary.empty else {}
     report = {
         "n_nodes": int(summary_row.get("n_nodes", 0)),
@@ -215,10 +326,27 @@ def _build_and_export_network(
         "base_fdr_alpha": float(summary_row.get("base_fdr_alpha", fdr_alpha)),
         "target_min_edges": int(summary_row.get("target_min_edges", 0)),
         "target_max_edges": int(summary_row.get("target_max_edges", 0)),
-        "priority_features": priority_df.head(top_n).to_dict(orient="records"),
-        "priority_columns": priority_df.columns.tolist(),
+        "priority_features": ranked.head(top_n).to_dict(orient="records"),
+        "priority_columns": ranked.columns.tolist(),
         "louvain_stability": louvain_stability_meta,
+        "n_samples": int(X_subset.shape[1]),
     }
+
+    if null_permutations > 0:
+        null_meta = network_edge_null(
+            X_subset,
+            abs_r_thr=report["applied_abs_r_thr"],
+            fdr_alpha=report["applied_fdr_alpha"],
+            n_permutations=null_permutations,
+            seed=seed,
+        )
+        if null_meta["observed_edges"] != report["n_edges"]:
+            raise RuntimeError(
+                f"Edge null rebuilt {null_meta['observed_edges']} edges, the network has {report['n_edges']}."
+            )
+        null_meta.update(modularity_null(edges_df, n_reps=null_configuration_models, seed=seed))
+        pd.DataFrame([null_meta]).to_csv(outdir / "null_model.csv", index=False)
+        report["null_model"] = null_meta
     return edges_df, report
 
 
@@ -252,34 +380,197 @@ def _check_network_hard_stops(
         )
 
 
-def _copy_to_run_triage(paths: list[Path], triage_dir: Path) -> None:
-    triage_dir.mkdir(parents=True, exist_ok=True)
-    for path in paths:
-        src = Path(path)
-        if src.exists():
-            shutil.copy2(src, triage_dir / src.name)
+# Columns of selected_metabolites.csv, in order; the full statistics of every
+# feature stay in details/selection/.
+_SELECTED_COLUMNS = {
+    "phenotype": ["direction", "mean_ref", "mean_case", "log2FC_case_vs_ref", "r_pheno", "q_pheno"],
+    "temporal": ["time_direction", "mean_t1", "mean_t2", "delta_t2_minus_t1", "r_time", "q_time"],
+}
+
+
+def _write_selected_table(selected: pd.DataFrame, kind: str, path: Path) -> None:
+    cols = ["name", "mz", "rt", "selection_route"] + _SELECTED_COLUMNS[kind] + [
+        "connectivity_score", "q_connectivity", "q_selection",
+    ]
+    table = selected[[c for c in cols if c in selected.columns]].copy()
+    table.index = table.index.astype(str)
+    table.index.name = "feature_id"
+    table.to_csv(path)
+
+
+def _compare_states(
+    config: LeanConfig,
+    comp: layout.Comparison,
+    selected: pd.DataFrame,
+    X_a: pd.DataFrame,
+    X_b: pd.DataFrame,
+    samples: pd.DataFrame,
+    *,
+    kind: str,
+    label_a: str,
+    label_b: str,
+    stop_labels: tuple[str, str],
+    direction_col: str,
+    steps: Steps,
+) -> tuple[dict, dict, dict]:
+    """Networks of the two states, their comparison, and the comparison against chance.
+
+    Shared by the phenotype and the temporal analysis; returns the two network
+    reports and the rewiring report.
+    """
+    top_n = int(config.REPORT_TOP_N)
+    null_perm = int(config.NULL_MODEL.n_permutations) if config.NULL_MODEL.enabled else 0
+    null_cm = int(config.NULL_MODEL.n_configuration_models) if config.NULL_MODEL.enabled else 0
+    net_kwargs = dict(
+        abs_r_thr=config.CORR_ABS_THRESHOLD,
+        fdr_alpha=config.CORR_FDR_ALPHA,
+        adaptive_thresholds=config.ADAPTIVE_NETWORK_THRESHOLDS,
+        min_edges=config.NETWORK_MIN_EDGES,
+        max_density=config.NETWORK_MAX_DENSITY,
+        floor_abs_r_thr=config.NETWORK_ABS_THRESHOLD_FLOOR,
+        ceil_fdr_alpha=config.NETWORK_FDR_ALPHA_CEILING,
+        top_n=top_n,
+        seed=config.RANDOM_SEED,
+        topology_weight=config.TRIAGE_TOPOLOGY_WEIGHT,
+        selection_weight=config.TRIAGE_SELECTION_WEIGHT,
+        louvain_stability_check=config.LOUVAIN_STABILITY_CHECK,
+        null_permutations=null_perm,
+        null_configuration_models=null_cm,
+    )
+
+    steps.start(f"Building the two networks: {label_a} and {label_b}")
+    edges_a, report_a = _build_and_export_network(selected, X_a, comp.network(label_a), **net_kwargs)
+    _check_network_hard_stops(report_a, stop_labels[0], config.NETWORK_MIN_EDGES_HARD_STOP, config.NETWORK_MIN_NODES_HARD_STOP)
+    edges_b, report_b = _build_and_export_network(selected, X_b, comp.network(label_b), **net_kwargs)
+    _check_network_hard_stops(report_b, stop_labels[1], config.NETWORK_MIN_EDGES_HARD_STOP, config.NETWORK_MIN_NODES_HARD_STOP)
+    for lbl, rep in ((label_a, report_a), (label_b, report_b)):
+        steps.detail(
+            f"{lbl}: {rep['n_nodes']} metabolites, {rep['n_edges']} correlations "
+            f"(|r| >= {rep['applied_abs_r_thr']:.2f}, q <= {rep['applied_fdr_alpha']:.2f})"
+        )
+
+    steps.start(f"Comparing the networks: {label_a} vs {label_b}")
+    shared, only_a, only_b, union = compute_rewiring(
+        edges_a, edges_b, label_a=label_a, label_b=label_b, sign_switch_min_r=config.SIGN_SWITCH_MIN_R,
+    )
+    rewiring_summary, rewiring_nodes = summarize_rewiring(union, label_a=label_a, label_b=label_b)
+    ensure_dir(comp.rewiring)
+    union.drop(columns=["edge_id"], errors="ignore").to_csv(comp.rewiring / "edges.csv", index=False)
+    rewiring_summary.to_csv(comp.rewiring / "rewiring_summary.csv", index=False)
+    samples.to_csv(comp.samples_used, index=False)
+    steps.detail(
+        f"{len(shared)} correlations shared, {len(only_a)} only in {label_a}, {len(only_b)} only in {label_b}"
+    )
+
+    rewiring: dict = {"summary": rewiring_summary.iloc[0].to_dict() if not rewiring_summary.empty else {}}
+    node_null = None
+    if null_perm:
+        steps.detail(f"testing against chance ({null_perm} permutations of the state labels) ...")
+        summary, node_null = rewiring_label_null(
+            X_a,
+            X_b,
+            thresholds_a=(report_a["applied_abs_r_thr"], report_a["applied_fdr_alpha"]),
+            thresholds_b=(report_b["applied_abs_r_thr"], report_b["applied_fdr_alpha"]),
+            n_permutations=null_perm,
+            seed=config.RANDOM_SEED,
+        )
+        if summary["observed_state_specific_edges"] != len(only_a) + len(only_b):
+            # Both counts come from the same edge filter; a mismatch is a bug.
+            raise RuntimeError(
+                "Rewiring null rebuilt a different observed network "
+                f"({summary['observed_state_specific_edges']} vs {len(only_a) + len(only_b)} state-specific edges)."
+            )
+        pd.DataFrame([summary]).to_csv(comp.rewiring_vs_chance, index=False)
+        summary["n_nodes_q05"] = int((node_null["q_bh"] <= 0.05).sum())
+        rewiring["null"] = summary
+
+    table = rewired_metabolites(
+        selected, rewiring_nodes, node_null, label_a=label_a, label_b=label_b, direction_col=direction_col,
+    )
+    table.to_csv(comp.rewired_metabolites, index=False)
+    _write_selected_table(selected, kind, comp.selected_metabolites)
+    # Node attributes: the selection columns plus every rewiring column, q_rewiring included.
+    node_rewiring = table.drop(columns=["rank"] + [c for c in table.columns if c in selected.columns])
+    export_rewiring_network(selected, union, node_rewiring, comp.rewiring_network)
+    rewiring["priority_nodes"] = table.head(top_n).to_dict(orient="records")
+    steps.detail(comparison_verdict({"rewiring": rewiring}, label_a, label_b))
+    return report_a, report_b, rewiring
+
+
+def _write_config_used(config: LeanConfig, path: Path) -> None:
+    data = config.model_dump(mode="json")
+    with path.open("w", encoding="utf-8") as f:
+        f.write("# The configuration this run used, every default filled in.\n")
+        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+
+
+def _elapsed(seconds: float) -> str:
+    seconds = int(round(seconds))
+    if seconds < 60:
+        return f"{seconds} s"
+    return f"{seconds // 60} min {seconds % 60:02d} s"
 
 
 # ============================================================
 # Main
 # ============================================================
 
-def run(config: LeanConfig) -> None:
-    logger.info("Starting PhenoRewire...")
+def run(config: LeanConfig, config_path: Optional[Path] = None) -> None:
+    """Run PhenoRewire with ``config``.
+
+    Writes everything under ``config.OUTDIR``; ``REPORT.md`` there says what to
+    open first.  ``config_path`` is only shown in the console and the report.
+    """
+    outdir = ensure_dir(Path(config.OUTDIR))
+    info = layout.run_info(outdir)
+    ensure_dir(info.root)
+    own_console = None if has_any_handler() else setup_console("INFO")
+    file_log = add_file_log(info.log)
+    try:
+        _run(config, outdir, info, config_path)
+    except Exception:
+        logger.debug("Run stopped with an error.", exc_info=True)
+        raise
+    finally:
+        remove_handler(file_log)
+        if own_console is not None:
+            remove_handler(own_console)
+
+
+def _run(config: LeanConfig, outdir: Path, info: layout.RunInfo, config_path: Optional[Path]) -> None:
+    started = time.time()
+    progress.info("PhenoRewire %s", __version__)
+    if config_path is not None:
+        progress.info("  config : %s", rel(Path(config_path)))
+    progress.info("  output : %s", rel(outdir))
+    _write_config_used(config, info.config)
 
     df = pd.read_csv(config.DATA_MATRIX, low_memory=False)
     meta = pd.read_csv(config.METADATA, low_memory=False)
     df.columns = [str(c).strip() for c in df.columns]
     meta.columns = [str(c).strip() for c in meta.columns]
 
-    outdir = ensure_dir(Path(config.OUTDIR))
-    run_triage_dir = ensure_dir(outdir / "triage")
-    top_n = int(config.REPORT_TOP_N)
+    # -----------------------------
+    # 1) Input check
+    # -----------------------------
+    check = check_inputs(config, df=df, meta=meta)
+    info.data_check.write_text(check.text() + "\n", encoding="utf-8")
+    # input check, preprocessing, three steps per comparison, report
+    steps = Steps(total=3 + 3 * max(1, len(check.comparisons)))
+    steps.start("Checking the input data")
+    for line in check.lines:
+        steps.detail(line)
+    for warning in check.warnings:
+        logger.warning("%s", warning)
+    if not check.ok:
+        raise InputDataError(check.error_message())
+
     requested_mode = str(config.ANALYSIS_MODE).lower()
 
     # -----------------------------
-    # Preprocessing -> matrices
+    # 2) Preprocessing -> matrices
     # -----------------------------
+    steps.start("Preprocessing")
     X_corr, meta2, feat_anno = prepare_matrices(
         df=df,
         meta=meta,
@@ -289,16 +580,18 @@ def run(config: LeanConfig) -> None:
         name_col=config.NAME_COL,
         intensity_regex=config.INTENSITY_REGEX,
         meta_sample_col=config.META_SAMPLE_COL,
-        outdir=outdir,
+        outdir=info.root,
         min_nonzero_intensity=config.MIN_NONZERO_INTENSITY,
         min_presence_global=config.MIN_PRESENCE_GLOBAL,
         norm_method=config.NORM_METHOD,
         log_transform=config.LOG_TRANSFORM,
         group_definition=config.GROUP_DEFINITION,
     )
-
-    meta2["group"].value_counts(dropna=False).rename_axis("group").to_frame("n").to_csv(outdir / "group_counts_used.csv")
-    logger.info("Groups used:\n%s", meta2["group"].value_counts(dropna=False).to_string())
+    steps.detail(
+        f"{X_corr.shape[0]} of {len(df)} features kept; {NORM_LABELS[config.NORM_METHOD]}"
+        + (", log2(x + 1)" if config.LOG_TRANSFORM else ", no log transform")
+    )
+    logger.debug("Groups used:\n%s", meta2["group"].value_counts(dropna=False).to_string())
 
     # keep only allowed groups
     allowed_groups = list(config.GROUP_DEFINITION.keys())
@@ -345,7 +638,7 @@ def run(config: LeanConfig) -> None:
                 "so only the groups you need match samples."
             )
         dropped = [g for g in unique_groups if g not in contrast]
-        logger.info(
+        logger.debug(
             "PHENO_GROUP_REF/CASE select the contrast '%s' vs '%s'; ignoring %d other group(s): %s",
             contrast[0], contrast[1], len(dropped), dropped,
         )
@@ -383,15 +676,31 @@ def run(config: LeanConfig) -> None:
     # Sample size guards — applied to all groups that will be used
     _check_group_sample_sizes(meta2["group"])
 
+    # Connectivity-based selection may add features the abundance step did not
+    # find, so the hard stop is applied after the two are combined.
+    abundance_hard_stop = 0
+    if not config.NULL_MODEL.enabled:
+        logger.warning(
+            "NULL_MODEL is disabled: networks and rewiring will be reported without any "
+            "comparison to chance."
+        )
+
     report_data: dict = {
         "tool_name": "PhenoRewire",
+        "version": __version__,
+        "config_path": rel(Path(config_path)) if config_path is not None else None,
+        "null_model_enabled": bool(config.NULL_MODEL.enabled),
         "analysis_mode": requested_mode,
         "outdir": str(outdir),
         "n_samples_used": int(meta2.shape[0]),
+        "n_features_input": int(len(df)),
         "n_features_after_preprocessing": int(X_corr.shape[0]),
+        "log_transform": bool(config.LOG_TRANSFORM),
+        "norm_method": str(config.NORM_METHOD),
         "triage_topology_weight": float(config.TRIAGE_TOPOLOGY_WEIGHT),
         "triage_selection_weight": float(config.TRIAGE_SELECTION_WEIGHT),
         "random_seed": int(config.RANDOM_SEED),
+        "input_check": {"warnings": check.warnings},
         "deliverables": [],
         "phenotype": {"executed": False},
         "temporal": {"executed": False},
@@ -411,17 +720,13 @@ def run(config: LeanConfig) -> None:
 
         group_to_bin = {ref_group: 0, case_group: 1}
         y = meta2["group"].map(group_to_bin).values.astype(int)
-
-        pd.DataFrame([{"group_ref": ref_group, "group_case": case_group, "ref_bin": 0, "case_bin": 1}]).to_csv(
-            outdir / "phenotype_direction.csv", index=False
-        )
         report_data["phenotype"].update(
             {"executed": True, "ref_group": ref_group, "case_group": case_group}
         )
     else:
         # Only reachable in 'auto' mode with a temporal analysis to fall back on;
         # every other combination has already raised above.
-        logger.info(
+        logger.debug(
             "Phenotype comparison not run: %d group(s) with samples after filtering (%s); "
             "continuing with the temporal analysis.",
             len(unique_groups),
@@ -430,11 +735,15 @@ def run(config: LeanConfig) -> None:
         y = np.array([], dtype=int)
 
     # -----------------------------
-    # A) Phenotype selection
+    # A) Phenotype comparison
     # -----------------------------
     if can_run_pheno:
-        pheno_out = ensure_dir(outdir / "phenotype_selection")
-        _, selected, pheno_sel_summary = phenotype_selection(
+        comp = layout.phenotype_comparison(outdir, ref_group, case_group)
+        report_data["phenotype"]["folder"] = rel(comp.root)
+        pheno_label = f"{ref_group} vs {case_group}"
+        steps.start(f"Selecting metabolites: {pheno_label}")
+        pheno_out = ensure_dir(comp.selection)
+        pheno_all, selected, pheno_sel_summary = phenotype_selection(
             X=X_corr,
             y=y,
             feat_anno=feat_anno,
@@ -445,14 +754,28 @@ def run(config: LeanConfig) -> None:
             min_selected_features=config.SELECTION_MIN_FEATURES,
             fdr_alpha_ceiling=config.SELECTION_FDR_ALPHA_CEILING,
             seed=config.RANDOM_SEED,
-            min_features_hard_stop=config.MIN_FEATURES_HARD_STOP,
+            min_features_hard_stop=abundance_hard_stop,
+            permutation_stream=PERMUTATION_STREAM,
         )
 
+        selected, selection_meta = _apply_connectivity_selection(
+            config,
+            pheno_all,
+            selected,
+            X_corr.loc[:, _subset_samples(meta2, config.META_SAMPLE_COL, meta2["group"] == ref_group)],
+            X_corr.loc[:, _subset_samples(meta2, config.META_SAMPLE_COL, meta2["group"] == case_group)],
+            pheno_out,
+            q_col="q_pheno",
+            label=f"Phenotype comparison {pheno_label}",
+        )
+        pheno_sel_summary["connectivity"] = selection_meta
         feats_sel = selected.index.astype(str).tolist()
         report_data["phenotype"]["n_selected_features"] = int(len(feats_sel))
         report_data["phenotype"]["selection"] = pheno_sel_summary
+        steps.detail(_selection_line(len(feats_sel), selection_meta, "abundance"))
         if len(feats_sel) == 0:
             logger.warning("No phenotype-associated features selected. Skipping phenotype networks.")
+            steps.skip(2)
         else:
             if not config.LOG_TRANSFORM:
                 logger.warning(
@@ -471,109 +794,35 @@ def run(config: LeanConfig) -> None:
             samp_ref = _subset_samples(meta2, config.META_SAMPLE_COL, meta2["group"] == ref_group)
             samp_case = _subset_samples(meta2, config.META_SAMPLE_COL, meta2["group"] == case_group)
 
-            X_sel_ref = X_corr.loc[feats_sel, samp_ref]
-            X_sel_case = X_corr.loc[feats_sel, samp_case]
+            op_range = operating_range(len(samp_ref), len(samp_case))
+            _log_operating_range(f"Phenotype comparison {pheno_label}", op_range)
+            report_data["phenotype"]["operating_range"] = op_range
 
-            net_ref_out = outdir / f"network_{ref_group}"
-            net_case_out = outdir / f"network_{case_group}"
-
-            edges_ref, report_ref = _build_and_export_network(
+            report_ref, report_case, rewiring = _compare_states(
+                config,
+                comp,
                 selected_pheno,
-                X_sel_ref,
-                net_ref_out,
-                abs_r_thr=config.CORR_ABS_THRESHOLD,
-                fdr_alpha=config.CORR_FDR_ALPHA,
-                adaptive_thresholds=config.ADAPTIVE_NETWORK_THRESHOLDS,
-                min_edges=config.NETWORK_MIN_EDGES,
-                max_density=config.NETWORK_MAX_DENSITY,
-                floor_abs_r_thr=config.NETWORK_ABS_THRESHOLD_FLOOR,
-                ceil_fdr_alpha=config.NETWORK_FDR_ALPHA_CEILING,
-                top_n=top_n,
-                seed=config.RANDOM_SEED,
-                topology_weight=config.TRIAGE_TOPOLOGY_WEIGHT,
-                selection_weight=config.TRIAGE_SELECTION_WEIGHT,
-                louvain_stability_check=config.LOUVAIN_STABILITY_CHECK,
+                X_corr.loc[feats_sel, samp_ref],
+                X_corr.loc[feats_sel, samp_case],
+                meta2.assign(state=meta2["group"]),
+                kind="phenotype",
+                label_a=ref_group,
+                label_b=case_group,
+                stop_labels=(ref_group, case_group),
+                direction_col="direction",
+                steps=steps,
             )
-            _check_network_hard_stops(report_ref, ref_group, config.NETWORK_MIN_EDGES_HARD_STOP, config.NETWORK_MIN_NODES_HARD_STOP)
-            edges_case, report_case = _build_and_export_network(
-                selected_pheno,
-                X_sel_case,
-                net_case_out,
-                abs_r_thr=config.CORR_ABS_THRESHOLD,
-                fdr_alpha=config.CORR_FDR_ALPHA,
-                adaptive_thresholds=config.ADAPTIVE_NETWORK_THRESHOLDS,
-                min_edges=config.NETWORK_MIN_EDGES,
-                max_density=config.NETWORK_MAX_DENSITY,
-                floor_abs_r_thr=config.NETWORK_ABS_THRESHOLD_FLOOR,
-                ceil_fdr_alpha=config.NETWORK_FDR_ALPHA_CEILING,
-                top_n=top_n,
-                seed=config.RANDOM_SEED,
-                topology_weight=config.TRIAGE_TOPOLOGY_WEIGHT,
-                selection_weight=config.TRIAGE_SELECTION_WEIGHT,
-                louvain_stability_check=config.LOUVAIN_STABILITY_CHECK,
-            )
-            _check_network_hard_stops(report_case, case_group, config.NETWORK_MIN_EDGES_HARD_STOP, config.NETWORK_MIN_NODES_HARD_STOP)
             report_ref["label"] = ref_group
             report_case["label"] = case_group
             report_data["phenotype"]["network_ref"] = report_ref
             report_data["phenotype"]["network_case"] = report_case
-            report_data["deliverables"].extend(
-                [
-                    str(net_ref_out / "triage" / "priority_features.csv"),
-                    str(net_case_out / "triage" / "priority_features.csv"),
-                ]
-            )
-
-            rew_pheno_out = ensure_dir(outdir / "rewiring_pheno")
-            shared, only_ref, only_case, union = compute_rewiring(
-                edges_ref,
-                edges_case,
-                label_a=ref_group,
-                label_b=case_group,
-                sign_switch_min_r=config.SIGN_SWITCH_MIN_R,
-            )
-            rewiring_summary, rewiring_nodes = summarize_rewiring(
-                union,
-                label_a=ref_group,
-                label_b=case_group,
-            )
-            shared.to_csv(rew_pheno_out / "edges_shared.csv", index=False)
-            only_ref.to_csv(rew_pheno_out / f"edges_{ref_group}_only.csv", index=False)
-            only_case.to_csv(rew_pheno_out / f"edges_{case_group}_only.csv", index=False)
-            union.to_csv(rew_pheno_out / "edges_union_with_stats.csv", index=False)
-            rewiring_summary.to_csv(rew_pheno_out / "rewiring_summary.csv", index=False)
-            rewiring_nodes.to_csv(rew_pheno_out / "rewiring_node_summary.csv", index=False)
-            meta2.to_csv(rew_pheno_out / "metadata_used.csv", index=False)
-            selected_pheno.to_csv(pheno_out / "selected_pheno_features_with_direction.csv")
-            export_rewiring_triage(rewiring_summary, rewiring_nodes, rew_pheno_out, top_n=top_n)
-            _pheno_graphml = outdir / "triage" / "rewiring_network_phenotype.graphml"
-            export_rewiring_network(selected_pheno, union, rewiring_nodes, _pheno_graphml)
-            logger.info("Rewiring network saved: %s", _pheno_graphml)
-            report_data["phenotype"]["rewiring"] = {
-                "summary": rewiring_summary.iloc[0].to_dict() if not rewiring_summary.empty else {},
-                "priority_nodes": rewiring_nodes.head(top_n).to_dict(orient="records"),
-            }
-            report_data["deliverables"].extend(
-                [
-                    str(pheno_out / "selected_pheno_features_with_direction.csv"),
-                    str(rew_pheno_out / "triage" / "priority_rewired_nodes.csv"),
-                    str(_pheno_graphml),
-                ]
-            )
-            _copy_to_run_triage(
-                [
-                    pheno_out / "selected_pheno_features_with_direction.csv",
-                    rew_pheno_out / "triage" / "priority_rewired_nodes.csv",
-                    rew_pheno_out / "triage" / "rewiring_summary.csv",
-                ],
-                run_triage_dir,
-            )
+            report_data["phenotype"]["rewiring"] = rewiring
+            report_data["deliverables"].extend(_key_files(comp, rewiring))
 
     # -----------------------------
-    # B) Temporal selection + rewiring (optional)
+    # B) Temporal comparison (optional)
     # -----------------------------
     if can_run_temporal:
-        logger.info("Temporal correlation enabled.")
         pheno_name = config.TEMPORAL_CORRELATION.phenotype
         time_col = config.TEMPORAL_CORRELATION.time_column
 
@@ -583,6 +832,7 @@ def run(config: LeanConfig) -> None:
         meta_sub = meta2[meta2["group"] == pheno_name].copy()
         if meta_sub.empty:
             logger.warning("No samples found for phenotype '%s' in temporal analysis.", pheno_name)
+            steps.skip(3)
         else:
             min_samp = int(getattr(config.TEMPORAL_CORRELATION, "min_samples", 3))
             if meta_sub.shape[0] < min_samp:
@@ -590,11 +840,12 @@ def run(config: LeanConfig) -> None:
                     "Temporal analysis skipped for phenotype '%s': only %d samples (< min_samples=%d).",
                     pheno_name, meta_sub.shape[0], min_samp
                 )
+                steps.skip(3)
             else:
                 if time_col not in meta_sub.columns:
                     raise ValueError(f"Time column '{time_col}' not found in metadata.")
 
-                time_num = _parse_time_numeric(meta_sub[time_col])
+                time_num = parse_time_numeric(meta_sub[time_col])
                 if time_num.isna().any():
                     bad = meta_sub.loc[time_num.isna(), [config.META_SAMPLE_COL, time_col]].head(10)
                     raise ValueError(
@@ -602,10 +853,16 @@ def run(config: LeanConfig) -> None:
                         f"{bad.to_string(index=False)}"
                     )
 
+                t1, t2 = float(config.TIMEPOINT_T1), float(config.TIMEPOINT_T2)
+                lbl_t1, lbl_t2 = timepoint_label(t1), timepoint_label(t2)
+                comp_t = layout.temporal_comparison(outdir, pheno_name, lbl_t1, lbl_t2)
+                report_data["temporal"]["folder"] = rel(comp_t.root)
+                steps.start(f"Selecting metabolites: {pheno_name}, {lbl_t1} vs {lbl_t2}")
+
                 samp_ids_sub = meta_sub[config.META_SAMPLE_COL].astype(str).tolist()
                 X_sub = X_corr.loc[:, samp_ids_sub]
 
-                temp_out = ensure_dir(outdir / "temporal_selection")
+                temp_out = ensure_dir(comp_t.selection)
                 temp_all, temp_selected, temp_sel_summary = temporal_selection(
                     X=X_sub,
                     time=time_num.values.astype(float),
@@ -617,8 +874,21 @@ def run(config: LeanConfig) -> None:
                     min_selected_features=config.SELECTION_MIN_FEATURES,
                     fdr_alpha_ceiling=config.SELECTION_FDR_ALPHA_CEILING,
                     seed=config.RANDOM_SEED,
-                    min_features_hard_stop=config.MIN_FEATURES_HARD_STOP,
+                    min_features_hard_stop=abundance_hard_stop,
+                    permutation_stream=PERMUTATION_STREAM,
                 )
+
+                temp_selected, selection_meta_t = _apply_connectivity_selection(
+                    config,
+                    temp_all,
+                    temp_selected,
+                    X_corr.loc[:, meta_sub.loc[(time_num == t1).values, config.META_SAMPLE_COL].astype(str)],
+                    X_corr.loc[:, meta_sub.loc[(time_num == t2).values, config.META_SAMPLE_COL].astype(str)],
+                    temp_out,
+                    q_col="q_time",
+                    label=f"Temporal comparison {lbl_t1} vs {lbl_t2}",
+                )
+                temp_sel_summary["connectivity"] = selection_meta_t
 
                 temp_feats = temp_selected.index.astype(str).tolist()
                 report_data["temporal"].update(
@@ -629,22 +899,19 @@ def run(config: LeanConfig) -> None:
                         "selection": temp_sel_summary,
                     }
                 )
+                steps.detail(_selection_line(len(temp_feats), selection_meta_t, "association with time"))
                 if len(temp_feats) == 0:
                     logger.warning("No temporal features selected. Skipping temporal rewiring networks.")
+                    steps.skip(2)
                 else:
-                    t1 = float(getattr(config, "TIMEPOINT_T1", 3))
-                    lbl_t1 = _timepoint_label(t1)
-                    t2 = float(getattr(config, "TIMEPOINT_T2", 6))
-                    lbl_t2 = _timepoint_label(t2)
-
                     meta_t1 = meta_sub[time_num == t1].copy()
                     meta_t2 = meta_sub[time_num == t2].copy()
                     other_tp = sorted(set(time_num.dropna().unique()) - {t1, t2})
                     if other_tp:
-                        logger.info(
-                            "Temporal analysis: using T1=%.4g and T2=%.4g. "
-                            "Ignoring other timepoints present in '%s': %s",
-                            t1, t2, pheno_name, other_tp,
+                        steps.detail(
+                            "networks compare " + f"{lbl_t1} and {lbl_t2}; the other timepoints ("
+                            + ", ".join(timepoint_label(t) for t in other_tp)
+                            + ") were used for selection only"
                         )
                     if meta_t1.empty or meta_t2.empty:
                         raise ValueError(
@@ -658,6 +925,10 @@ def run(config: LeanConfig) -> None:
 
                     X_t1 = X_corr.loc[temp_feats, samp_t1]
                     X_t2 = X_corr.loc[temp_feats, samp_t2]
+
+                    op_range_t = operating_range(len(samp_t1), len(samp_t2))
+                    _log_operating_range(f"Temporal comparison {lbl_t1} vs {lbl_t2}", op_range_t)
+                    report_data["temporal"]["operating_range"] = op_range_t
 
                     temp_sel2 = temp_selected.copy()
                     mean_t1 = _safe_mean_rows(X_t1)
@@ -673,45 +944,21 @@ def run(config: LeanConfig) -> None:
                         np.where(temp_sel2["delta_t2_minus_t1"].astype(float) < -eps, f"up_at_{lbl_t1}", "flat"),
                     )
 
-                    net_t1_out = outdir / f"network_{pheno_name}_{lbl_t1}"
-                    net_t2_out = outdir / f"network_{pheno_name}_{lbl_t2}"
-
-                    edges_t1, report_t1 = _build_and_export_network(
+                    samples_t = pd.concat([meta_t1.assign(state=lbl_t1), meta_t2.assign(state=lbl_t2)])
+                    report_t1, report_t2, rewiring_t = _compare_states(
+                        config,
+                        comp_t,
                         temp_sel2,
                         X_t1,
-                        net_t1_out,
-                        abs_r_thr=config.CORR_ABS_THRESHOLD,
-                        fdr_alpha=config.CORR_FDR_ALPHA,
-                        adaptive_thresholds=config.ADAPTIVE_NETWORK_THRESHOLDS,
-                        min_edges=config.NETWORK_MIN_EDGES,
-                        max_density=config.NETWORK_MAX_DENSITY,
-                        floor_abs_r_thr=config.NETWORK_ABS_THRESHOLD_FLOOR,
-                        ceil_fdr_alpha=config.NETWORK_FDR_ALPHA_CEILING,
-                        top_n=top_n,
-                        seed=config.RANDOM_SEED,
-                        topology_weight=config.TRIAGE_TOPOLOGY_WEIGHT,
-                        selection_weight=config.TRIAGE_SELECTION_WEIGHT,
-                        louvain_stability_check=config.LOUVAIN_STABILITY_CHECK,
-                    )
-                    _check_network_hard_stops(report_t1, f"t={lbl_t1}", config.NETWORK_MIN_EDGES_HARD_STOP, config.NETWORK_MIN_NODES_HARD_STOP)
-                    edges_t2, report_t2 = _build_and_export_network(
-                        temp_sel2,
                         X_t2,
-                        net_t2_out,
-                        abs_r_thr=config.CORR_ABS_THRESHOLD,
-                        fdr_alpha=config.CORR_FDR_ALPHA,
-                        adaptive_thresholds=config.ADAPTIVE_NETWORK_THRESHOLDS,
-                        min_edges=config.NETWORK_MIN_EDGES,
-                        max_density=config.NETWORK_MAX_DENSITY,
-                        floor_abs_r_thr=config.NETWORK_ABS_THRESHOLD_FLOOR,
-                        ceil_fdr_alpha=config.NETWORK_FDR_ALPHA_CEILING,
-                        top_n=top_n,
-                        seed=config.RANDOM_SEED,
-                        topology_weight=config.TRIAGE_TOPOLOGY_WEIGHT,
-                        selection_weight=config.TRIAGE_SELECTION_WEIGHT,
-                        louvain_stability_check=config.LOUVAIN_STABILITY_CHECK,
+                        samples_t,
+                        kind="temporal",
+                        label_a=lbl_t1,
+                        label_b=lbl_t2,
+                        stop_labels=(f"t={lbl_t1}", f"t={lbl_t2}"),
+                        direction_col="time_direction",
+                        steps=steps,
                     )
-                    _check_network_hard_stops(report_t2, f"t={lbl_t2}", config.NETWORK_MIN_EDGES_HARD_STOP, config.NETWORK_MIN_NODES_HARD_STOP)
                     report_t1["label"] = f"{lbl_t1}"
                     report_t2["label"] = f"{lbl_t2}"
                     report_data["temporal"].update(
@@ -720,69 +967,36 @@ def run(config: LeanConfig) -> None:
                             "timepoint_b": f"{lbl_t2}",
                             "network_t1": report_t1,
                             "network_t2": report_t2,
+                            "rewiring": rewiring_t,
                         }
                     )
-                    report_data["deliverables"].extend(
-                        [
-                            str(net_t1_out / "triage" / "priority_features.csv"),
-                            str(net_t2_out / "triage" / "priority_features.csv"),
-                        ]
-                    )
+                    report_data["deliverables"].extend(_key_files(comp_t, rewiring_t))
 
-                    rew_time_out = ensure_dir(outdir / "rewiring_time")
-                    shared_t, only_t1, only_t2, union_t = compute_rewiring(
-                        edges_t1,
-                        edges_t2,
-                        label_a=f"{lbl_t1}",
-                        label_b=f"{lbl_t2}",
-                        sign_switch_min_r=config.SIGN_SWITCH_MIN_R,
-                    )
-                    rewiring_summary_t, rewiring_nodes_t = summarize_rewiring(
-                        union_t,
-                        label_a=f"{lbl_t1}",
-                        label_b=f"{lbl_t2}",
-                    )
-                    shared_t.to_csv(rew_time_out / "edges_shared.csv", index=False)
-                    only_t1.to_csv(rew_time_out / f"edges_{lbl_t1}_only.csv", index=False)
-                    only_t2.to_csv(rew_time_out / f"edges_{lbl_t2}_only.csv", index=False)
-                    union_t.to_csv(rew_time_out / "edges_union_with_stats.csv", index=False)
-                    rewiring_summary_t.to_csv(rew_time_out / "rewiring_summary.csv", index=False)
-                    rewiring_nodes_t.to_csv(rew_time_out / "rewiring_node_summary.csv", index=False)
-
-                    meta_sub.to_csv(rew_time_out / "metadata_used.csv", index=False)
-                    temp_sel2.to_csv(temp_out / "selected_temporal_features_with_direction.csv")
-                    export_rewiring_triage(rewiring_summary_t, rewiring_nodes_t, rew_time_out, top_n=top_n)
-                    _temp_graphml = outdir / "triage" / "rewiring_network_temporal.graphml"
-                    export_rewiring_network(temp_sel2, union_t, rewiring_nodes_t, _temp_graphml)
-                    logger.info("Rewiring network saved: %s", _temp_graphml)
-                    report_data["temporal"]["rewiring"] = {
-                        "summary": rewiring_summary_t.iloc[0].to_dict() if not rewiring_summary_t.empty else {},
-                        "priority_nodes": rewiring_nodes_t.head(top_n).to_dict(orient="records"),
-                    }
-                    report_data["deliverables"].extend(
-                        [
-                            str(temp_out / "selected_temporal_features_with_direction.csv"),
-                            str(rew_time_out / "triage" / "priority_rewired_nodes.csv"),
-                            str(_temp_graphml),
-                        ]
-                    )
-                    _copy_to_run_triage(
-                        [
-                            temp_out / "selected_temporal_features_with_direction.csv",
-                            rew_time_out / "triage" / "priority_rewired_nodes.csv",
-                            rew_time_out / "triage" / "rewiring_summary.csv",
-                        ],
-                        run_triage_dir,
-                    )
-
-    report_data["deliverables"].append(str(outdir / "report" / "final_report.md"))
+    steps.start("Writing the report")
+    report_data["deliverables"].append(str(outdir / layout.REPORT_MD))
     export_final_report(report_data, outdir)
-    _copy_to_run_triage(
-        [
-            outdir / "report" / "final_report.md",
-            outdir / "report" / "final_report.json",
-        ],
-        run_triage_dir,
-    )
 
-    logger.info("Pipeline completed. OUTDIR = %s", outdir)
+    _closing_block(report_data, outdir, time.time() - started)
+
+
+def _key_files(comp: layout.Comparison, rewiring: dict) -> list[str]:
+    files = [comp.rewiring_vs_chance] if rewiring.get("null") else []
+    files += [comp.rewired_metabolites, comp.selected_metabolites, comp.rewiring_network]
+    return [str(p) for p in files]
+
+
+def _closing_block(report: dict, outdir: Path, seconds: float) -> None:
+    progress.info("")
+    progress.info("Done in %s.", _elapsed(seconds))
+    for key, a_key, b_key in (("phenotype", "ref_group", "case_group"), ("temporal", "timepoint_a", "timepoint_b")):
+        section = report.get(key, {})
+        if section.get("rewiring"):
+            verdict = comparison_verdict(section, section.get(a_key), section.get(b_key))
+            Steps.detail(f"{section.get(a_key)} vs {section.get(b_key)}: {verdict}", indent="  ")
+    progress.info("")
+    progress.info("  Start here : %s", rel(outdir / layout.REPORT_MD))
+    for key in ("phenotype", "temporal"):
+        folder = report.get(key, {}).get("folder")
+        if folder and report[key].get("rewiring"):
+            progress.info("  Key tables : %s/", folder)
+    progress.info("  Run log    : %s", rel(layout.run_info(outdir).log))

@@ -51,9 +51,7 @@ from sklearn.metrics import roc_auc_score
 
 from phenorewire.stats import spearman_permutation_test
 from phenorewire.networks import correlation_network, compute_network_metrics
-from phenorewire.triage import export_network_triage
-
-import tempfile
+from phenorewire.triage import rank_network_nodes
 
 # ---------------------------------------------------------------------------
 # Simulation parameters
@@ -143,7 +141,6 @@ def compute_triage_scores(
     topology_weight: float,
     selection_weight: float,
     seed: int = SEED,
-    outdir: Path | None = None,
 ) -> pd.DataFrame:
     """
     Run feature selection + network + triage on a synthetic dataset.
@@ -187,28 +184,8 @@ def compute_triage_scores(
     )
     nodes_df, community_df, network_summary_df = compute_network_metrics(selected_feat, edges_df, seed=seed)
 
-    if outdir is None:
-        tmp = tempfile.mkdtemp()
-        outdir = Path(tmp)
-
-    export_network_triage(
-        nodes_df,
-        community_df,
-        network_summary_df,
-        outdir,
-        top_n=N_FEATURES,
-        topology_weight=topology_weight,
-        selection_weight=selection_weight,
-    )
-
-    triage_path = outdir / "triage" / "node_priority_ranking.csv"
-    if triage_path.exists():
-        df = pd.read_csv(triage_path)
-        if "feature_id" not in df.columns and df.columns[0] != "feature_id":
-            df = df.rename(columns={df.columns[0]: "feature_id"})
-        return df[["feature_id", "triage_score"]].copy()
-
-    return pd.DataFrame(columns=["feature_id", "triage_score"])
+    df = rank_network_nodes(nodes_df, topology_weight=topology_weight, selection_weight=selection_weight)
+    return df[["feature_id", "triage_score"]].copy()
 
 
 def run_sensitivity(seed: int = SEED) -> pd.DataFrame:

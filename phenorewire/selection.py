@@ -103,7 +103,7 @@ def run_permutation_selection(
     r_col: str,
     q_col: str,
     all_filename: str,
-    selected_filename: str,
+    selected_filename: Optional[str],
     summary_filename: str,
     n_permutations: int,
     fdr_alpha: float,
@@ -115,6 +115,7 @@ def run_permutation_selection(
     remedy: str,
     extra_columns: Optional[dict] = None,
     extra_summary: Optional[dict] = None,
+    permutation_stream: str = "per_feature",
 ) -> Tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Correlate every feature against ``target``, FDR-correct, and select.
 
@@ -132,7 +133,8 @@ def run_permutation_selection(
         raise ValueError("n_permutations must be >= 10 for stability.")
 
     r_obs, p_emp = spearman_permutation_test(
-        mat, np.asarray(target, dtype=float), n_permutations=n_perm, seed=int(seed)
+        mat, np.asarray(target, dtype=float), n_permutations=n_perm, seed=int(seed),
+        stream=permutation_stream,
     )
 
     # With method="fdr_bh" the returned q-values do not depend on alpha; it only
@@ -174,7 +176,8 @@ def run_permutation_selection(
     res_annot.to_csv(outdir / all_filename, index=True)
 
     selected = res_annot[res_annot["significant"]].copy()
-    selected.to_csv(outdir / selected_filename, index=True)
+    if selected_filename:
+        selected.to_csv(outdir / selected_filename, index=True)
 
     summary = {
         "n_features_total": int(len(feats)),
@@ -185,9 +188,11 @@ def run_permutation_selection(
         "min_selected_target": int(selection_meta["min_selected_target"]),
         "selected_at_base_alpha": int(selection_meta["selected_at_base_alpha"]),
         "n_permutations": int(n_perm),
+        "permutation_stream": str(permutation_stream),
+        "seed": int(seed),
     }
     summary.update(extra_summary or {})
     save_json(summary, outdir / summary_filename)
 
-    logger.info("%s selection done. Selected %d features.", mode, selected.shape[0])
+    logger.debug("%s selection done. Selected %d features.", mode, selected.shape[0])
     return res_annot, selected, summary

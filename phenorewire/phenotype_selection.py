@@ -27,6 +27,7 @@ def phenotype_selection(
     min_selected_features: int,
     fdr_alpha_ceiling: float,
     seed: int = 42,
+    permutation_stream: str = "per_feature",
     min_features_hard_stop: int = 5,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, dict]:
     """
@@ -39,9 +40,8 @@ def phenotype_selection(
       - X is already preprocessed (presence filter / normalization / optional log transform) upstream
 
     Outputs (in outdir):
-      - phenotype_features_all.csv
-      - phenotype_features_selected.csv
-      - phenotype_selection_summary.json
+      - all_features_tested.csv
+      - selection_summary.json
     """
     logger.info("Running phenotype-driven selection...")
 
@@ -76,15 +76,16 @@ def phenotype_selection(
         mode="Phenotype",
         r_col="r_pheno",
         q_col="q_pheno",
-        all_filename="phenotype_features_all.csv",
-        selected_filename="phenotype_features_selected.csv",
-        summary_filename="phenotype_selection_summary.json",
+        all_filename="all_features_tested.csv",
+        selected_filename=None,
+        summary_filename="selection_summary.json",
         n_permutations=n_permutations,
         fdr_alpha=fdr_alpha,
         adaptive_fdr=adaptive_fdr,
         min_selected_features=min_selected_features,
         fdr_alpha_ceiling=fdr_alpha_ceiling,
         seed=seed,
+        permutation_stream=permutation_stream,
         min_features_hard_stop=min_features_hard_stop,
         remedy="more samples, fewer features",
         extra_columns={

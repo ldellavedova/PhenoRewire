@@ -151,6 +151,44 @@ def _select_adaptive_thresholds(
 # Correlation Network
 # ============================================================
 
+def pairwise_spearman(mat: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None:
+    """Spearman rho, asymptotic p and BH q for every feature pair.
+
+    ``mat`` is features x samples and must already be free of constant rows.
+    Returns ``(iu, rvals, pvals, qvals)`` over the upper triangle, with NaN q
+    for pairs whose correlation is not finite, or None when scipy cannot
+    produce a matrix.  This is the single edge-statistics path: the observed
+    networks and every null-model replicate go through it, so a null network
+    is filtered exactly as a real one.
+    """
+    # Memory note: O(n_features²) — ~8 MB at 1k features, ~200 MB at 5k,
+    # ~800 MB at 10k. For large feature sets consider pre-filtering.
+    R, P = spearmanr(mat.T, axis=0)
+    if not isinstance(R, np.ndarray) or R.ndim != 2:
+        return None
+
+    iu = np.triu_indices(R.shape[0], k=1)
+    rvals = R[iu].astype(float)
+    pvals = P[iu].astype(float)
+
+    finite = np.isfinite(rvals) & np.isfinite(pvals)
+    qvals = np.full_like(pvals, np.nan, dtype=float)
+    if finite.any():
+        # With method="fdr_bh" the q-values do not depend on alpha.
+        qvals[finite] = multipletests(pvals[finite], alpha=0.05, method="fdr_bh")[1]
+    return iu, rvals, pvals, qvals
+
+
+def edge_mask(rvals: np.ndarray, qvals: np.ndarray, abs_r_thr: float, fdr_alpha: float) -> np.ndarray:
+    """Pairs that pass the network filter: finite, q <= fdr_alpha and |rho| >= abs_r_thr."""
+    return (
+        np.isfinite(rvals)
+        & np.isfinite(qvals)
+        & (qvals <= float(fdr_alpha))
+        & (np.abs(rvals) >= float(abs_r_thr))
+    )
+
+
 def correlation_network(
     X_feat_by_samp: pd.DataFrame,
     *,
@@ -213,17 +251,10 @@ def correlation_network(
     if mat2.shape[0] < 2 or mat2.shape[1] < 3:
         return nx.Graph(), pd.DataFrame(columns=EDGE_COLS), _empty_threshold_meta(abs_r_thr, fdr_alpha)
 
-    # Memory note: O(n_features²) — ~8 MB at 1k features, ~200 MB at 5k,
-    # ~800 MB at 10k. For large feature sets consider pre-filtering.
-    R, P = spearmanr(mat2.T, axis=0)
-
-    if not isinstance(R, np.ndarray) or R.ndim != 2:
+    stats = pairwise_spearman(mat2)
+    if stats is None:
         return nx.Graph(), pd.DataFrame(columns=EDGE_COLS), _empty_threshold_meta(abs_r_thr, fdr_alpha)
-
-    # Upper triangle indices
-    iu = np.triu_indices(R.shape[0], k=1)
-    rvals = R[iu].astype(float)
-    pvals = P[iu].astype(float)
+    iu, rvals, pvals, qvals = stats
 
     finite = np.isfinite(rvals) & np.isfinite(pvals)
 
@@ -242,18 +273,6 @@ def correlation_network(
     if int(finite.sum()) == 0:
         return nx.Graph(), pd.DataFrame(columns=EDGE_COLS), _empty_threshold_meta(abs_r_thr, fdr_alpha)
 
-    # BH-FDR on p-values
-    rej = np.zeros_like(pvals, dtype=bool)
-    qvals = np.full_like(pvals, np.nan, dtype=float)
-
-    rej_f, q_f, *_ = multipletests(
-        pvals[finite],
-        alpha=float(fdr_alpha),
-        method="fdr_bh",
-    )
-    rej[finite] = rej_f
-    qvals[finite] = q_f
-
     threshold_meta = _select_adaptive_thresholds(
         rvals,
         qvals,
@@ -267,11 +286,11 @@ def correlation_network(
         ceil_fdr_alpha=float(ceil_fdr_alpha),
     )
 
-    mask = (
-        np.isfinite(rvals)
-        & np.isfinite(qvals)
-        & (qvals <= float(threshold_meta["applied_fdr_alpha"]))
-        & (np.abs(rvals) >= float(threshold_meta["applied_abs_r_thr"]))
+    mask = edge_mask(
+        rvals,
+        qvals,
+        threshold_meta["applied_abs_r_thr"],
+        threshold_meta["applied_fdr_alpha"],
     )
 
     a_idx = iu[0][mask]
@@ -390,7 +409,9 @@ def compute_network_metrics(
     nodes_df.index = nodes_df.index.astype(str)
 
     G = _build_weighted_graph(edges_df)
-    if not nodes_df.empty:
+    # len(index), not .empty: a feature table with rows but no columns is
+    # "empty" to pandas and would silently lose all its nodes.
+    if len(nodes_df.index):
         G.add_nodes_from(nodes_df.index.tolist())
 
     if G.number_of_nodes() == 0:
@@ -837,13 +858,6 @@ def export_network(
         )
 
     nodes_df.to_csv(outdir / "nodes.csv", index=False)
-    metric_cols = [col for col in NODE_METRIC_COLS if col in nodes_df.columns]
-    if metric_cols:
-        metric_export_cols = ["feature_id"]
-        if "name" in nodes_df.columns:
-            metric_export_cols.append("name")
-        metric_export_cols.extend(metric_cols)
-        nodes_df[metric_export_cols].to_csv(outdir / "node_metrics.csv", index=False)
 
     # --------------------------------------------------------
     # Edges table

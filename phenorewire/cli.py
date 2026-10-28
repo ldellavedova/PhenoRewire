@@ -20,18 +20,26 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  phenorewire --config config_phenotype.yaml
+  phenorewire --config config_phenotype.yaml --check     check the input data only
+  phenorewire --config config_phenotype.yaml             run the analysis
   phenorewire --config config_phenotype.yaml --run-2dnetwork
   phenorewire --config config_phenotype.yaml --plot-networks
-  phenorewire --config config.yaml --log-level DEBUG
+
+Results: OUTDIR/REPORT.md says what was found and which file to open first.
 """,
     )
     p.add_argument("--config", required=True, help="Path to YAML configuration file.")
     p.add_argument(
+        "--check",
+        action="store_true",
+        default=False,
+        help="Only check the input data (samples, groups, timepoints, values) and stop.",
+    )
+    p.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Logging verbosity (default: INFO).",
+        help="Console verbosity (default: INFO). The full log is always in OUTDIR/run_info/run.log.",
     )
     p.add_argument(
         "--run-2dnetwork",
@@ -40,8 +48,7 @@ Examples:
         help=(
             "After the main pipeline, run the 2D network annotation expansion module. "
             "Requires SPECREBOOT_NETWORK in the config. "
-            "Uses PHENOREWIRE_NETWORK if set, otherwise auto-detects the rewiring GraphML "
-            "produced by this run (rewiring_network_phenotype.graphml or rewiring_network_temporal.graphml)."
+            "Uses PHENOREWIRE_NETWORK if set, otherwise the rewiring network of each comparison of this run."
         ),
     )
     p.add_argument(
@@ -53,22 +60,80 @@ Examples:
     return p
 
 
+def _config_error_text(exc: Exception) -> str:
+    """A pydantic validation error as one line per problem."""
+    errors = getattr(exc, "errors", None)
+    if not callable(errors):
+        return str(exc)
+    lines = []
+    for err in errors():
+        where = ".".join(str(x) for x in err.get("loc", ())) or "config"
+        msg = str(err.get("msg", "")).removeprefix("Value error, ")
+        ctx = err.get("ctx") or {}
+        if "error" in ctx and str(ctx["error"]) not in msg:
+            msg = f"{msg}: {ctx['error']}"
+        lines.append(f"- {where}: {msg}")
+    return "\n".join(lines)
+
+
+def _fail(title: str, detail: str, debug: bool) -> int:
+    print(f"\nERROR: {title}", file=sys.stderr)
+    if detail:
+        print(detail, file=sys.stderr)
+    if not debug:
+        print("\n(Run with --log-level DEBUG to see the full traceback.)", file=sys.stderr)
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    from .config import LeanConfig
-    from .run import run, _setup_logging
+    from pydantic import ValidationError
 
-    _setup_logging(args.log_level)
+    from .checks import check_inputs
+    from .config import LeanConfig
+    from .console import setup_console
+    from .run import run
+
+    debug = args.log_level == "DEBUG"
+    setup_console(args.log_level)
 
     cfg_path = Path(args.config)
     if not cfg_path.exists():
-        print(f"ERROR: Config file not found: {cfg_path}", file=sys.stderr)
-        return 1
+        return _fail(f"config file not found: {cfg_path}", "", debug=True)
 
-    config = LeanConfig.from_yaml(cfg_path)
-    run(config)
+    try:
+        config = LeanConfig.from_yaml(cfg_path)
+    except ValidationError as exc:
+        if debug:
+            raise
+        return _fail(
+            f"the config file {cfg_path} has a problem. Relative paths are read from the "
+            "config file's own folder.",
+            _config_error_text(exc),
+            debug,
+        )
+    except (ValueError, OSError) as exc:
+        if debug:
+            raise
+        return _fail(f"could not read the config file {cfg_path}.", str(exc), debug)
+
+    if args.check:
+        chk = check_inputs(config)
+        print(chk.text())
+        return 0 if chk.ok else 1
+
+    try:
+        run(config, config_path=cfg_path)
+    except (ValueError, FileNotFoundError, KeyError) as exc:
+        if debug:
+            raise
+        return _fail(
+            "the run stopped.",
+            f"{exc}\n\nThe log of the run so far: {Path(config.OUTDIR) / 'run_info' / 'run.log'}",
+            debug,
+        )
 
     if args.run_2dnetwork or args.plot_networks:
         _run_extras(config, args, cfg_path)
@@ -77,8 +142,15 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run_extras(config, args, cfg_path: Path) -> None:
+    from .console import rel
+    from .layout import find_comparisons
+
     logger = logging.getLogger("phenorewire.cli")
     outdir = Path(config.OUTDIR)
+    comparisons = find_comparisons(outdir)
+    if not comparisons:
+        logger.warning("No rewiring network found in %s; nothing to annotate or plot.", outdir)
+        return
 
     if args.plot_networks:
         try:
@@ -90,35 +162,19 @@ def _run_extras(config, args, cfg_path: Path) -> None:
             )
             return
 
-        _mode = str(getattr(config, "ANALYSIS_MODE", "phenotype")).lower()
-        _graphml_candidates = (
-            [outdir / "triage" / "rewiring_network_temporal.graphml"]
-            if _mode == "temporal"
-            else [
-                outdir / "triage" / "rewiring_network_phenotype.graphml",
-                outdir / "triage" / "rewiring_network.graphml",  # legacy fallback
-            ]
-        )
-        rewiring_graphml = next((p for p in _graphml_candidates if p.exists()), None)
-        if rewiring_graphml is None:
-            logger.warning("--plot-networks: rewiring_network graphml not found in %s/triage/", outdir)
-        else:
-            rewiring_graphml = Path(rewiring_graphml)
-            plot_outdir = outdir / "plots"
-            plot_outdir.mkdir(parents=True, exist_ok=True)
+        for comp in comparisons:
+            comp.plots.mkdir(parents=True, exist_ok=True)
             try:
-                priority_csv = outdir / "triage" / "priority_rewired_nodes.csv"
-                triage_df = pd.read_csv(priority_csv) if priority_csv.exists() else pd.DataFrame()
-                rewiring_df = triage_df
+                ranked = pd.read_csv(comp.rewired_metabolites) if comp.rewired_metabolites.exists() else pd.DataFrame()
                 plot_rewiring_network(
-                    rewiring_graphml,
-                    triage_df=triage_df,
-                    rewiring_df=rewiring_df,
-                    output_path=plot_outdir / "rewiring_network",
+                    comp.rewiring_network,
+                    triage_df=ranked,
+                    rewiring_df=ranked,
+                    output_path=comp.plots / "rewiring_network",
                 )
-                logger.info("Network plots written to %s", plot_outdir)
+                logging.getLogger("phenorewire.progress").info("  Network plots: %s/", rel(comp.plots))
             except Exception as exc:
-                logger.error("--plot-networks failed: %s", exc)
+                logger.error("--plot-networks failed for %s: %s", comp.root.name, exc)
 
     if args.run_2dnetwork:
         try:
@@ -141,69 +197,32 @@ def _run_extras(config, args, cfg_path: Path) -> None:
             )
             return
 
-        if phenorewire_path is None:
-            _mode = str(getattr(config, "ANALYSIS_MODE", "phenotype")).lower()
-            _candidates = (
-                [outdir / "triage" / "rewiring_network_temporal.graphml"]
-                if _mode == "temporal"
-                else [
-                    outdir / "triage" / "rewiring_network_phenotype.graphml",
-                    outdir / "triage" / "rewiring_network.graphml",  # legacy fallback
-                ]
-            )
-            _found = next((str(p) for p in _candidates if p.exists()), None)
-            if _found is None:
-                logger.error(
-                    "--run-2dnetwork: PHENOREWIRE_NETWORK not set and no rewiring network "
-                    "graphml found in %s/triage/. Run the main pipeline first.",
-                    outdir,
-                )
-                return
-            phenorewire_path = _found
-
-        priority_csv = outdir / "triage" / "priority_rewired_nodes.csv"
-        priority_df = pd.read_csv(priority_csv) if priority_csv.exists() else pd.DataFrame()
-
-        priority_features_df = priority_df.copy()
-        triage_features_csv = next(
-            (p for p in outdir.rglob("priority_features.csv") if "triage" in str(p)), None
-        )
-        if priority_features_df.empty and triage_features_csv:
-            priority_features_df = pd.read_csv(triage_features_csv)
-            logger.warning(
-                "--run-2dnetwork: priority_rewired_nodes.csv not found; "
-                "falling back to %s for feature ranking.",
-                triage_features_csv,
-            )
-
-        ann_outdir = outdir / "2dnetwork"
-        ann_outdir.mkdir(parents=True, exist_ok=True)
-
         top_n = int(getattr(config, "ANNOTATION_TOP_N", 20))
         hop_depth = int(getattr(config, "MN_HOP_DEPTH", 2))
         min_cosine = float(getattr(config, "MN_MIN_COSINE", 0.70))
 
-        try:
-            summary_df, expansion_df, first_neighbours_df = build_annotation_expansion(
-                phenorewire_graphml=Path(str(phenorewire_path)),
-                specreboot_graphml=Path(str(specreboot_path)),
-                priority_features_df=priority_features_df,
-                rewiring_df=priority_df if not priority_df.empty else priority_features_df,
-                top_n=top_n,
-                hop_depth=hop_depth,
-                min_cosine=min_cosine,
-                output_dir=ann_outdir,
-            )
-            logger.info(
-                "2D network annotation expansion complete: %d features, %d expansion rows, %d first-neighbour rows. "
-                "Outputs in %s",
-                len(summary_df),
-                len(expansion_df),
-                len(first_neighbours_df),
-                ann_outdir,
-            )
-        except Exception as exc:
-            logger.error("--run-2dnetwork failed: %s", exc)
+        for comp in comparisons:
+            ranked = pd.read_csv(comp.rewired_metabolites) if comp.rewired_metabolites.exists() else pd.DataFrame()
+            graphml = Path(str(phenorewire_path)) if phenorewire_path else comp.rewiring_network
+            ann_outdir = comp.molecular_network
+            ann_outdir.mkdir(parents=True, exist_ok=True)
+            try:
+                summary_df, expansion_df, first_neighbours_df = build_annotation_expansion(
+                    phenorewire_graphml=graphml,
+                    specreboot_graphml=Path(str(specreboot_path)),
+                    priority_features_df=ranked,
+                    rewiring_df=ranked,
+                    top_n=top_n,
+                    hop_depth=hop_depth,
+                    min_cosine=min_cosine,
+                    output_dir=ann_outdir,
+                )
+                logging.getLogger("phenorewire.progress").info(
+                    "  Molecular-network annotation: %d metabolites, %d neighbours -> %s/",
+                    len(summary_df), len(first_neighbours_df), rel(ann_outdir),
+                )
+            except Exception as exc:
+                logger.error("--run-2dnetwork failed for %s: %s", comp.root.name, exc)
 
 
 if __name__ == "__main__":

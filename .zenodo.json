@@ -1,0 +1,34 @@
+{
+  "title": "PhenoRewire: phenotype-aware metabolomics network rewiring",
+  "description": "<p>PhenoRewire is a Python command-line tool for detecting network rewiring in metabolomics data. It builds one metabolite co-variation network per biological state, classifies every pair of metabolites as shared, specific to one state or reversed in sign, and tests whether the difference between the two networks exceeds what an arbitrary split of the same samples produces. It identifies metabolites whose correlation neighbourhood reorganised between two states, including those whose abundance did not change and which a differential-abundance analysis cannot report.</p><p>This release carries the ground-truth benchmarks behind its claims, against DiffCorr and DGCA, with their result tables.</p>",
+  "upload_type": "software",
+  "license": "MIT",
+  "access_right": "open",
+  "creators": [
+    {
+      "name": "Della Vedova, Larissa",
+      "affiliation": "Utrecht University"
+    }
+  ],
+  "keywords": [
+    "metabolomics",
+    "network rewiring",
+    "co-variation network",
+    "differential correlation",
+    "urobiome",
+    "untargeted mass spectrometry"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "10.64898/2026.08.29.748013",
+      "relation": "isSupplementTo",
+      "resource_type": "publication-preprint",
+      "scheme": "doi"
+    },
+    {
+      "identifier": "https://github.com/ldellavedova/PhenoRewire",
+      "relation": "isSupplementTo",
+      "scheme": "url"
+    }
+  ]
+}

@@ -168,3 +168,52 @@ def test_adaptive_fdr_off_by_default_does_not_relax() -> None:
     assert meta["adaptive_fdr_used"] is False
     assert np.isclose(meta["applied_fdr_alpha"], 0.05)
     assert int(selected.sum()) == 0
+
+
+# ---------------------------------------------------------------------------
+# Permutation streams
+# ---------------------------------------------------------------------------
+
+def _legacy_shared_stream(X, y, n_perm, seed):
+    """The pre-release implementation, verbatim in behaviour: one generator,
+    one scipy.spearmanr call per permutation, constant rows skipped."""
+    from scipy.stats import spearmanr
+
+    rng = np.random.default_rng(seed)
+    r_obs = np.full(X.shape[0], np.nan)
+    p = np.ones(X.shape[0])
+    for i in range(X.shape[0]):
+        x = X[i]
+        if np.nanstd(x) == 0.0:
+            continue
+        r, _ = spearmanr(x, y)
+        r_obs[i] = r
+        rp = np.array([abs(spearmanr(x, rng.permutation(y))[0]) for _ in range(n_perm)])
+        p[i] = (np.sum(rp >= abs(r)) + 1) / (n_perm + 1)
+    return r_obs, p
+
+
+def test_shared_stream_reproduces_pre_release_scheme():
+    rng = np.random.default_rng(11)
+    X = rng.standard_normal((12, 10))
+    X[4] = 3.0                                   # constant row draws nothing
+    y = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1], dtype=float)
+    r_new, p_new = spearman_permutation_test(X, y, n_permutations=50, seed=42, stream="shared")
+    r_old, p_old = _legacy_shared_stream(X, y, 50, 42)
+    np.testing.assert_allclose(r_new, r_old, atol=1e-12, equal_nan=True)
+    np.testing.assert_array_equal(p_new, p_old)
+
+
+def test_streams_agree_on_r_and_differ_only_in_draws():
+    rng = np.random.default_rng(12)
+    X = rng.standard_normal((30, 16))
+    y = np.repeat([0.0, 1.0], 8)
+    r1, p1 = spearman_permutation_test(X, y, n_permutations=200, seed=1, stream="per_feature")
+    r2, p2 = spearman_permutation_test(X, y, n_permutations=200, seed=1, stream="shared")
+    np.testing.assert_allclose(r1, r2, atol=1e-12)
+    assert np.max(np.abs(p1 - p2)) < 0.15
+
+
+def test_unknown_stream_rejected():
+    with pytest.raises(ValueError, match="stream"):
+        spearman_permutation_test(np.ones((2, 5)), np.arange(5.0), n_permutations=10, seed=0, stream="bogus")

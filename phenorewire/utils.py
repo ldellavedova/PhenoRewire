@@ -20,6 +20,27 @@ def ensure_dir(p: Path) -> Path:
     return p
 
 
+def parse_time_numeric(series: pd.Series) -> pd.Series:
+    """Times as numbers; "3h", "3 hours" and "3" all parse as 3."""
+    s = series.astype(str).str.strip().str.lower()
+    s = s.str.replace("hours", "", regex=False).str.replace("hour", "", regex=False).str.replace("h", "", regex=False)
+    s = s.str.strip()
+    return pd.to_numeric(s, errors="coerce")
+
+
+def timepoint_label(t: float) -> str:
+    """Filename-safe label for a timepoint.
+
+    Integer-valued timepoints keep the plain "3h" form.  Fractional ones keep their
+    value with the decimal point spelled out ("0.5" -> "0p5h"), so two distinct
+    timepoints can never collapse onto the same directory name.
+    """
+    t = float(t)
+    if t.is_integer():
+        return f"{int(t)}h"
+    return f"{t:g}".replace("-", "neg").replace(".", "p") + "h"
+
+
 def safe_log2p1(X: pd.DataFrame) -> pd.DataFrame:
     return np.log2(X.astype(float) + 1.0)
 
@@ -43,6 +64,75 @@ def median_normalize(X: pd.DataFrame) -> pd.DataFrame:
         scale = scale.fillna(1.0)
 
     return X.mul(scale, axis=1)
+
+
+PQN_MIN_COMPLETE_FEATURES = 10
+
+
+def pqn_normalize(X: pd.DataFrame) -> pd.DataFrame:
+    """Probabilistic quotient normalization (Dieterle et al., Anal Chem 2006).
+
+    The reference profile is each feature's median over the samples.  A sample's
+    dilution factor is the median, over its features, of its intensity divided
+    by the reference; the sample is divided by that factor.  Undetected values
+    (0) take no part in either median, so sparse samples are normalised on what
+    they contain.
+
+    The reference is built from the features detected in every sample when at
+    least PQN_MIN_COMPLETE_FEATURES of them exist.  A feature missing from some
+    samples has its median taken over a different set of samples than the
+    others, and when the missingness follows dilution (a feature undetected in
+    the most dilute samples) that biases every quotient.  With too few complete
+    features, every feature contributes, its median taken over the samples where
+    it was detected.  A sample with no usable quotient is left unscaled and a
+    warning is logged.
+    """
+    detected = X.where(X > 0)
+    complete = detected.notna().all(axis=1)
+    if int(complete.sum()) >= PQN_MIN_COMPLETE_FEATURES:
+        detected = detected.loc[complete]
+    reference = detected.median(axis=1, skipna=True)
+    quotients = detected.div(reference.where(reference > 0), axis=0)
+    factor = quotients.median(axis=0, skipna=True)
+    bad = factor.isna() | (factor <= 0)
+    if bad.any():
+        logger.warning(
+            "pqn_normalize: %d/%d samples have no feature detected in common with the reference; "
+            "leaving them unscaled.",
+            int(bad.sum()),
+            int(len(factor)),
+        )
+        factor = factor.mask(bad, 1.0)
+    return X.div(factor, axis=1)
+
+
+def tic_normalize(X: pd.DataFrame) -> pd.DataFrame:
+    """Total-signal normalization: every sample is scaled to the median total intensity."""
+    totals = X.sum(axis=0, skipna=True)
+    scale = float(np.nanmedian(totals.values)) / totals.replace(0, np.nan)
+    bad = scale.isna()
+    if bad.any():
+        logger.warning("tic_normalize: %d/%d samples have zero total intensity; leaving them unscaled.",
+                       int(bad.sum()), int(len(scale)))
+        scale = scale.fillna(1.0)
+    return X.mul(scale, axis=1)
+
+
+# How each NORM_METHOD is named in the console and the report.
+NORM_LABELS = {
+    "median": "median normalisation",
+    "pqn": "probabilistic quotient normalisation (PQN)",
+    "tic": "total-signal (TIC) normalisation",
+    "none": "no normalisation",
+}
+
+# NORM_METHOD -> function; "none" keeps the intensities as they are.
+NORMALIZERS = {
+    "median": median_normalize,
+    "pqn": pqn_normalize,
+    "tic": tic_normalize,
+    "none": lambda X: X,
+}
 
 
 def _json_default(value: Any):

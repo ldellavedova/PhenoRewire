@@ -25,7 +25,7 @@ class TemporalCorrelationConfig(BaseModel):
     enabled: bool = False
     phenotype: Optional[str] = None
     time_column: Optional[str] = None
-    n_permutations: int = 500
+    n_permutations: int = 1000
     fdr_alpha: float = 0.05
     min_samples: int = 3
 
@@ -60,6 +60,96 @@ class TemporalCorrelationConfig(BaseModel):
             return None
         vv = str(v).strip()
         return vv if vv else None
+
+
+class NullModelConfig(BaseModel):
+    """
+    Permutation null models reported alongside every network and comparison.
+
+    They add output files and report sections; they never change which features
+    are selected or which edges are drawn.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    # Replicates for the edge null of each state network and for the
+    # label-permutation null of each comparison.  The smallest attainable
+    # empirical p is 1 / (n_permutations + 1).
+    n_permutations: int = 200
+    # Degree-preserving rewirings used to put modularity in context.
+    n_configuration_models: int = 50
+
+    @field_validator("n_permutations")
+    @classmethod
+    def _v_nperm(cls, v: int) -> int:
+        v = int(v)
+        if v < 20:
+            raise ValueError("NULL_MODEL.n_permutations must be >= 20 (smallest attainable p = 1/(n+1)).")
+        return v
+
+    @field_validator("n_configuration_models")
+    @classmethod
+    def _v_ncm(cls, v: int) -> int:
+        v = int(v)
+        if v < 0:
+            raise ValueError("NULL_MODEL.n_configuration_models must be >= 0.")
+        return v
+
+
+class ConnectivityConfig(BaseModel):
+    """
+    Connectivity-based feature selection.
+
+    Run automatically, alongside abundance-based selection, whenever both
+    states have at least ``min_n_per_state`` samples.  Selects features whose
+    correlation neighbourhood changes between the states, whatever their
+    abundance does.  These settings rarely need changing.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    # Score = mean of each feature's top_k largest |change in Spearman rho|.
+    top_k: int = 10
+    n_permutations: int = 200
+    fdr_alpha: float = 0.05
+    # The selector is not run when the smaller state has fewer samples.
+    # Measured on simulated ground truth; lowering it is allowed down to 10
+    # but recall there is near zero.
+    min_n_per_state: int = 14
+
+    @field_validator("top_k")
+    @classmethod
+    def _v_topk(cls, v: int) -> int:
+        v = int(v)
+        if v < 1:
+            raise ValueError("CONNECTIVITY.top_k must be >= 1.")
+        return v
+
+    @field_validator("n_permutations")
+    @classmethod
+    def _v_nperm(cls, v: int) -> int:
+        v = int(v)
+        if v < 50:
+            raise ValueError("CONNECTIVITY.n_permutations must be >= 50.")
+        return v
+
+    @field_validator("fdr_alpha")
+    @classmethod
+    def _v_alpha(cls, v: float) -> float:
+        v = float(v)
+        if not (0 < v <= 1):
+            raise ValueError("CONNECTIVITY.fdr_alpha must be in (0, 1].")
+        return v
+
+    @field_validator("min_n_per_state")
+    @classmethod
+    def _v_min_n(cls, v: int) -> int:
+        v = int(v)
+        if v < 10:
+            raise ValueError(
+                "CONNECTIVITY.min_n_per_state must be >= 10: below that the selector recovers "
+                "essentially nothing and its permutation null is too coarse to trust."
+            )
+        return v
 
 
 # ============================================================
@@ -105,7 +195,7 @@ class LeanConfig(BaseModel):
 
     # Phenotype selection
     FDR_ALPHA: float = 0.05
-    N_PERMUTATIONS_PHENO: int = 500
+    N_PERMUTATIONS_PHENO: int = 1000
     # ADAPTIVE_SELECTION_THRESHOLDS: opt-in relaxation — false by default so reviewers see the
     # base-alpha result; set true only when you have a small cohort and accept the caveat.
     ADAPTIVE_SELECTION_THRESHOLDS: bool = False
@@ -156,6 +246,8 @@ class LeanConfig(BaseModel):
 
     # Modules (NO mutable defaults!)
     TEMPORAL_CORRELATION: TemporalCorrelationConfig = Field(default_factory=TemporalCorrelationConfig)
+    NULL_MODEL: NullModelConfig = Field(default_factory=NullModelConfig)
+    CONNECTIVITY: ConnectivityConfig = Field(default_factory=ConnectivityConfig)
 
     # ------------------------------
     # Field validators
@@ -171,7 +263,9 @@ class LeanConfig(BaseModel):
     def _ensure_inputs_exist(cls, v: Path) -> Path:
         v = Path(v)
         if not v.exists():
-            raise FileNotFoundError(f"Input path does not exist: {v}")
+            # ValueError, not FileNotFoundError: pydantic turns only ValueError into
+            # a validation error that names the config key.
+            raise ValueError(f"file not found: {v}")
         return v
 
     @field_validator("OUTDIR")
@@ -198,8 +292,9 @@ class LeanConfig(BaseModel):
     @classmethod
     def _check_norm(cls, v: str) -> str:
         vv = str(v).strip().lower()
-        if vv != "median":
-            raise ValueError("Only NORM_METHOD='median' is supported.")
+        allowed = ("median", "pqn", "tic", "none")
+        if vv not in allowed:
+            raise ValueError(f"NORM_METHOD must be one of {', '.join(allowed)}.")
         return vv
 
     @field_validator("MIN_PRESENCE_GLOBAL")

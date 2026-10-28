@@ -28,9 +28,9 @@ Demonstrates the `--run-2dnetwork` feature using the bundled demo molecular netw
 ### [`walkthrough.md`](walkthrough.md) — Output interpretation walkthrough
 
 A written step-by-step guide through the example outputs from the phenotype quick-start. Covers:
-- reading `final_report.md`
-- interpreting `priority_rewired_nodes.csv`
-- understanding the network collapse in the example dataset
+- reading `REPORT.md`
+- interpreting `rewiring_vs_chance.csv` and `rewired_metabolites.csv`
+- the temporal example (`config_temporal.yaml`): the same reading for two timepoints
 - visualising in Cytoscape
 
 ---

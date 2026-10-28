@@ -1,21 +1,19 @@
 # ── PhenoRewire · Step 4 — Triage & ranking ──────────────────────────────────
-# Ranks features by triage_score and rewiring_score.
+# Ranks the nodes of each network by triage_score, and the metabolites of a
+# comparison by how much (and how significantly) they rewire.
 # triage_score = 0.7 * topology_priority_score + 0.3 * selection_support_score
 #   topology_priority_score = mean percentile rank of [degree_centrality,
 #     betweenness_centrality, eigenvector_centrality, weighted_degree_abs]
 #   selection_support_score = 1 - q_value (configurable weights via YAML)
 # rewiring_score = state_A_only_edges + state_B_only_edges + sign_switch_edges
 # rewiring_fraction = (state_A_only + state_B_only) / total_union_degree  [0–1]
-# Produces: priority_rewired_nodes.csv, rewiring_network.graphml
+# Both functions return tables; run.py decides where they are written.
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Iterable
-import shutil
+from typing import Optional
 
+import numpy as np
 import pandas as pd
-
-from .utils import ensure_dir, save_json
 
 
 def _rank_pct(series: pd.Series) -> pd.Series:
@@ -24,38 +22,14 @@ def _rank_pct(series: pd.Series) -> pd.Series:
     return series.rank(method="average", pct=True).fillna(0.0)
 
 
-def _top_table(df: pd.DataFrame, sort_cols: Iterable[str], top_n: int) -> pd.DataFrame:
-    if df.empty:
-        return df.copy()
-    cols = [col for col in sort_cols if col in df.columns]
-    if not cols:
-        return df.head(0).copy()
-    ascending = [False] * len(cols)
-    if "feature_id" in df.columns:
-        cols = cols + ["feature_id"]
-        ascending = ascending + [True]
-    return df.sort_values(cols, ascending=ascending).head(top_n).copy()
-
-
-def _copy_if_exists(src: Path, dst: Path) -> None:
-    src = Path(src)
-    dst = Path(dst)
-    if src.exists():
-        shutil.copy2(src, dst)
-
-
-def export_network_triage(
+def rank_network_nodes(
     nodes_df: pd.DataFrame,
-    community_summary: pd.DataFrame,
-    network_summary: pd.DataFrame,
-    outdir: Path,
     *,
-    top_n: int = 25,
     topology_weight: float = 0.7,
     selection_weight: float = 0.3,
-) -> None:
+) -> pd.DataFrame:
     """
-    Rank network nodes by triage_score and export priority tables.
+    The nodes of one network, with triage scores, best first.
 
     triage_score = topology_weight * topology_priority_score
                  + selection_weight * selection_support_score
@@ -65,23 +39,20 @@ def export_network_triage(
     selection_support_score = 1 - q_value (phenotype/time association strength, 0–1)
 
     The default weights (0.7 topology / 0.3 selection) were validated in
-    tests/simulate/weight_sensitivity.py across [0.1/0.9 ... 0.9/0.1] on a synthetic dataset
+    dev/simulate/weight_sensitivity.py across [0.1/0.9 ... 0.9/0.1] on a synthetic dataset
     with hub-only and selection-only ground-truth features.  AUROC for ground-truth node
     recovery varies ~0.19 across the range (highest at selection-heavy 0.1/0.9, lowest at
     topology-heavy 0.9/0.1), confirming that weights matter.  The 0.7/0.3 default balances
     hub detection with phenotype-association signal.  Both weights are configurable via
     TRIAGE_TOPOLOGY_WEIGHT / TRIAGE_SELECTION_WEIGHT in the YAML config.
     """
-    triage_dir = ensure_dir(Path(outdir) / "triage")
-
     if nodes_df is None or nodes_df.empty:
-        save_json({"top_n": int(top_n), "n_ranked_nodes": 0}, triage_dir / "triage_manifest.json")
-        return
+        return pd.DataFrame(columns=["feature_id", "triage_score"])
 
-    ranked = nodes_df.copy().reset_index(drop=False)
+    ranked = nodes_df.copy()
     if "feature_id" not in ranked.columns:
-        first_col = ranked.columns[0]
-        ranked = ranked.rename(columns={first_col: "feature_id"})
+        ranked = ranked.reset_index(drop=False)
+        ranked = ranked.rename(columns={ranked.columns[0]: "feature_id"})
     ranked = ranked.reset_index(drop=True)
 
     for col in ["degree_centrality", "betweenness_centrality", "eigenvector_centrality", "weighted_degree_abs"]:
@@ -95,10 +66,13 @@ def export_network_triage(
         + _rank_pct(ranked["weighted_degree_abs"].astype(float))
     ) / 4.0
 
-    if "q_pheno" in ranked.columns:
-        ranked["selection_support_score"] = 1.0 - ranked["q_pheno"].clip(lower=0.0, upper=1.0).fillna(1.0)
-    elif "q_time" in ranked.columns:
-        ranked["selection_support_score"] = 1.0 - ranked["q_time"].clip(lower=0.0, upper=1.0).fillna(1.0)
+    for q_col in ("q_selection", "q_pheno", "q_time"):
+        # q_selection is set when connectivity-based selection ran: the q-value of
+        # the route that selected the feature (the smaller one when both did).
+        if q_col in ranked.columns:
+            q = pd.to_numeric(ranked[q_col], errors="coerce")
+            ranked["selection_support_score"] = 1.0 - q.clip(lower=0.0, upper=1.0).fillna(1.0)
+            break
     else:
         ranked["selection_support_score"] = 0.0
 
@@ -106,81 +80,69 @@ def export_network_triage(
         float(topology_weight) * ranked["topology_priority_score"]
         + float(selection_weight) * ranked["selection_support_score"]
     )
-    ranked = ranked.sort_values(["triage_score", "topology_priority_score", "feature_id"], ascending=[False, False, True])
-    ranked.to_csv(triage_dir / "node_priority_ranking.csv", index=False)
-
-    _top_table(ranked, ["degree", "degree_centrality", "weighted_degree_abs"], top_n).to_csv(
-        triage_dir / "top_hubs.csv", index=False
-    )
-    _top_table(ranked, ["betweenness_centrality", "degree"], top_n).to_csv(
-        triage_dir / "top_brokers.csv", index=False
-    )
-    _top_table(ranked, ["eigenvector_centrality", "weighted_degree_abs"], top_n).to_csv(
-        triage_dir / "top_influencers.csv", index=False
-    )
-    _top_table(ranked, ["triage_score", "selection_support_score"], top_n).to_csv(
-        triage_dir / "priority_features.csv", index=False
-    )
-
-    if community_summary is not None and not community_summary.empty:
-        community_summary.to_csv(triage_dir / "community_summary.csv", index=False)
-
-    if network_summary is not None and not network_summary.empty:
-        network_summary.to_csv(triage_dir / "network_summary.csv", index=False)
-        save_json(network_summary.iloc[0].to_dict(), triage_dir / "network_summary.json")
-
-    save_json(
-        {
-            "top_n": int(top_n),
-            "n_ranked_nodes": int(ranked.shape[0]),
-            "has_selection_support": bool(("q_pheno" in ranked.columns) or ("q_time" in ranked.columns)),
-        },
-        triage_dir / "triage_manifest.json",
-    )
-
-    # Duplicate the main user-facing analytical artifacts inside triage/.
-    _copy_if_exists(Path(outdir) / "network.graphml", triage_dir / "network.graphml")
-    _copy_if_exists(Path(outdir) / "node_metrics.csv", triage_dir / "node_metrics.csv")
-    _copy_if_exists(Path(outdir) / "community_summary.csv", triage_dir / "community_summary.csv")
-    _copy_if_exists(Path(outdir) / "network_summary.csv", triage_dir / "network_summary.csv")
-    _copy_if_exists(Path(outdir) / "nodes.csv", triage_dir / "nodes.csv")
-    _copy_if_exists(Path(outdir) / "edges.csv", triage_dir / "edges.csv")
+    return ranked.sort_values(
+        ["triage_score", "topology_priority_score", "feature_id"], ascending=[False, False, True]
+    ).reset_index(drop=True)
 
 
-def export_rewiring_triage(
-    rewiring_summary: pd.DataFrame,
+def rewired_metabolites(
+    selected: pd.DataFrame,
     rewiring_nodes: pd.DataFrame,
-    outdir: Path,
+    node_null: Optional[pd.DataFrame],
     *,
-    top_n: int = 25,
-) -> None:
-    triage_dir = ensure_dir(Path(outdir) / "triage")
+    label_a: str,
+    label_b: str,
+    direction_col: str,
+) -> pd.DataFrame:
+    """
+    One row per selected metabolite: who it is, how it was selected, which way it
+    moved, how many of its connections changed, and whether that is more than chance.
 
-    if rewiring_summary is not None and not rewiring_summary.empty:
-        rewiring_summary.to_csv(triage_dir / "rewiring_summary.csv", index=False)
-        save_json(rewiring_summary.iloc[0].to_dict(), triage_dir / "rewiring_summary.json")
+    Metabolites without any edge in either network are kept with zero counts, so
+    the table always lists every metabolite that entered the comparison.  Sorted by
+    q_rewiring (when the null model ran), then by rewiring_score.
+    """
+    ids = selected.index.astype(str)
+    out = pd.DataFrame({"feature_id": ids})
+    out["name"] = selected["name"].astype(str).values if "name" in selected.columns else ids
+    if "selection_route" in selected.columns:
+        out["selection_route"] = selected["selection_route"].values
+    if direction_col in selected.columns:
+        out["direction"] = selected[direction_col].values
 
-    if rewiring_nodes is None or rewiring_nodes.empty:
-        save_json({"top_n": int(top_n), "n_ranked_nodes": 0}, triage_dir / "triage_manifest.json")
-        return
+    count_cols = [f"{label_a}_only_edges", f"{label_b}_only_edges", "shared_edges", "sign_switch_edges"]
+    rew = rewiring_nodes.copy() if rewiring_nodes is not None else pd.DataFrame(columns=["feature_id"])
+    rew["feature_id"] = rew["feature_id"].astype(str)
+    keep = ["feature_id", "rewiring_score", "rewiring_fraction"] + count_cols
+    out = out.merge(rew[[c for c in keep if c in rew.columns]], on="feature_id", how="left")
+    for col in ["rewiring_score", "rewiring_fraction"] + count_cols:
+        if col not in out.columns:
+            out[col] = 0
+        out[col] = out[col].fillna(0)
+    for col in count_cols + ["rewiring_score"]:
+        out[col] = out[col].astype(int)
 
-    ranked = rewiring_nodes.sort_values(
-        ["rewiring_score", "sign_switch_edges", "feature_id"],
-        ascending=[False, False, True],
-    ).copy()
-    ranked.to_csv(triage_dir / "rewiring_node_ranking.csv", index=False)
-    ranked.head(top_n).to_csv(triage_dir / "priority_rewired_nodes.csv", index=False)
+    sort_cols, ascending = ["rewiring_score"], [False]
+    if node_null is not None and not node_null.empty:
+        null = node_null.rename(
+            columns={
+                "null_mean_state_specific_edges": "expected_by_chance",
+                "p_empirical": "p_rewiring",
+                "q_bh": "q_rewiring",
+            }
+        )
+        null["feature_id"] = null["feature_id"].astype(str)
+        out = out.merge(
+            null[["feature_id", "expected_by_chance", "p_rewiring", "q_rewiring"]], on="feature_id", how="left"
+        )
+        out["more_than_chance"] = out["q_rewiring"].astype(float) <= 0.05
+        sort_cols, ascending = ["q_rewiring", "rewiring_score"], [True, False]
 
-    save_json(
-        {"top_n": int(top_n), "n_ranked_nodes": int(ranked.shape[0])},
-        triage_dir / "triage_manifest.json",
-    )
-
-    # Duplicate the main rewiring artifacts inside triage/.
-    _copy_if_exists(Path(outdir) / "edges_union_with_stats.csv", triage_dir / "edges_union_with_stats.csv")
-    _copy_if_exists(Path(outdir) / "rewiring_summary.csv", triage_dir / "rewiring_summary.csv")
-    _copy_if_exists(Path(outdir) / "rewiring_node_summary.csv", triage_dir / "rewiring_node_summary.csv")
-    for candidate in Path(outdir).glob("edges_*_only.csv"):
-        _copy_if_exists(candidate, triage_dir / candidate.name)
-    _copy_if_exists(Path(outdir) / "edges_shared.csv", triage_dir / "edges_shared.csv")
-
+    out = out.sort_values(sort_cols + ["feature_id"], ascending=ascending + [True]).reset_index(drop=True)
+    out.insert(0, "rank", np.arange(1, len(out) + 1))
+    # The verdict first, then how it was selected, then the counts behind it.
+    order = [
+        "rank", "feature_id", "name", "rewiring_score", "rewiring_fraction", "q_rewiring",
+        "more_than_chance", "selection_route", "direction",
+    ] + count_cols + ["expected_by_chance", "p_rewiring"]
+    return out[[c for c in order if c in out.columns]]

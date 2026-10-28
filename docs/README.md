@@ -1,28 +1,14 @@
-# PhenoRewire — Documentation
+# PhenoRewire documentation
 
-This folder contains user and technical documentation. Start with the [main README](../README.md) for installation and quick start, then come here for details.
+Start with the [main README](../README.md): installation and a first run take a few minutes. Then, in the order you will need them:
 
----
-
-## Contents
-
-| File | Description |
-|------|-------------|
-| [`interpret_phenotype.md`](interpret_phenotype.md) | Column definitions and interpretation guide for phenotype mode outputs |
-| [`interpret_temporal.md`](interpret_temporal.md) | Column definitions and interpretation guide for temporal mode outputs |
-| [`interpret_2d_network.md`](interpret_2d_network.md) | Column definitions and interpretation guide for 2D annotation outputs |
-| [`architecture.md`](architecture.md) | Technical architecture reference: module overview, execution flow, output semantics |
-| [`troubleshooting.md`](troubleshooting.md) | Solutions to common installation and runtime problems |
-| [`tutorials/`](tutorials/README.md) | Step-by-step tutorial notebooks and written walkthroughs |
-
----
-
-## Where to start
-
-- **New user:** read `../README.md` → run the quick start → open `interpret_phenotype.md`
-- **Interpreting outputs:** `interpret_phenotype.md` or `interpret_temporal.md`
-- **2D annotation:** `interpret_2d_network.md`
-- **Step-by-step walkthrough:** `tutorials/walkthrough.md`
-- **Interactive tutorial:** `tutorials/tutorial.ipynb`
-- **Technical details:** `architecture.md`
-- **Something went wrong:** `troubleshooting.md`
+| Step | Read | When |
+|---|---|---|
+| 1 | [`prepare_your_data.md`](prepare_your_data.md) | Before your first run on your own data: what the two tables must contain, and what to leave out |
+| 2 | [`configuration.md`](configuration.md) | Writing the config: every key, its default and what it does |
+| 3 | [`reading_the_results.md`](reading_the_results.md) | After the run: what each output file and column means |
+| — | [`tutorials/walkthrough.md`](tutorials/walkthrough.md) | A worked example on the bundled data, file by file |
+| — | [`tutorials/`](tutorials/README.md) | The same as notebooks, plus the molecular-network annotation |
+| — | [`interpret_2d_network.md`](interpret_2d_network.md) | Optional: suggesting annotations for rewired metabolites from a molecular network |
+| — | [`troubleshooting.md`](troubleshooting.md) | Something stopped or looks wrong |
+| — | [`architecture.md`](architecture.md) | Reading or changing the code |

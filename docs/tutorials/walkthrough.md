@@ -1,133 +1,198 @@
-# PhenoRewire — Example Walkthrough
+# PhenoRewire: example walkthrough
 
-This directory contains a self-contained example to get you started and to explain how to interpret PhenoRewire outputs.
+A guided reading of one run on the bundled example data, in the order the
+outputs should be read. Every number below comes from that run.
 
-## Dataset description
+## The example data
 
 | | |
 | --- | --- |
-| Features | 22 metabolites (20 biologically patterned + 2 noise) |
-| Samples | 20 (10 reference, 10 case) |
-| Phenotype | two-group comparison (reference vs case) |
+| Metabolites | 60 |
+| Samples | 40: 20 reference, 20 case |
+| Comparison | phenotype mode, reference vs case |
 
-The synthetic data embeds a specific biological scenario:
+The data are synthetic (`dev/benchmarks/fixtures/generate_example_data.py`)
+and built so that the right answer is known. Each block of ten metabolites is
+one of the situations the benchmark tests:
 
-- **Nucleotide energy module** (ATP, ADP, AMP, adenosine): strongly co-regulated in the reference group; this correlation structure dissolves in the case group
-- **Case-specific feature**: one feature gains a new correlation partner only in the case group
-- Several features are differentially abundant between groups
+| Metabolites | What happens between reference and case | What a correct analysis reports |
+| --- | --- | --- |
+| F001–F010 | correlated in reference, independent in case, and higher in case | changed in abundance **and** rewired |
+| F011–F020 | correlated in both states, lower in case | changed in abundance, **not** rewired |
+| F021–F030 | independent in reference, correlated in case; level and spread identical | **rewired without any change in abundance**: invisible to differential abundance |
+| F031–F060 | background | nothing |
 
-## Step 1 — Run the pipeline
+The names on F001–F022 (lactate, citrulline, ATP...) are labels for the demo,
+not a biological model.
+
+## Step 1: check, then run
 
 From the repository root:
 
 ```bash
-phenorewire --config dev/benchmarks/fixtures/config_example.yaml
+phenorewire --config config_phenotype.yaml --check
+phenorewire --config config_phenotype.yaml
 ```
 
-Results are written to `results/example/`. The run takes about 30–60 seconds.
+The check reports 60 features x 40 samples, all samples matched, the two
+groups with 20 samples each, and that the comparison is within the operating
+range. Twenty samples per state means PhenoRewire selects metabolites both by
+abundance and by change in co-variation partners.
 
-## Step 2 — Read the summary first
+The run takes a few seconds and ends with:
 
-Open `results/example/report/final_report.md`.
+```text
+Done in 8 s.
+  Reference vs Case: the networks differ more than chance (86 state-specific correlations vs
+  35.7 expected, p = 0.005); 18 metabolite(s) rewire more than chance (q <= 0.05).
 
-The **Executive Summary** section gives you the headline numbers immediately:
-
+  Start here : results/phenotype_example/REPORT.md
+  Key tables : results/phenotype_example/Reference_vs_Case/
 ```
-Phenotype comparison retained 9 phenotype-associated features.
-Phenotype rewiring summary: shared=0, condition_specific=7, sign_switch=0.
-```
 
-Interpretation:
-- 9 of 22 features were significantly correlated with the phenotype after FDR correction (q ≤ 0.10)
-- Of the 7 total edges across both networks, **0 are shared** between reference and case — the entire correlation structure is rewired
-- No sign switches in this example (an edge that was positive in one group is not negative in the other)
+Open `REPORT.md`: the same sentence comes first, then the files to open and the
+most rewired metabolites. The steps below go through those files, which are
+all in `results/phenotype_example/Reference_vs_Case/`.
 
-The **rewiring_proportion = 1.0** in `rewiring_summary.csv` confirms this: 100% of all connections changed between states.
+## Step 2: is there rewiring at all?
 
-## Step 3 — Identify the most rewired metabolites
+Open `rewiring_vs_chance.csv` first. It answers whether the two states differ
+in co-variation by more than an arbitrary split of the same 40 samples:
 
-Open `results/example/triage/priority_rewired_nodes.csv`.
+| observed state-specific edges | expected by chance | ratio | p |
+| --- | --- | --- | --- |
+| 86 | 35.7 | 2.4 | 0.005 |
 
-The top rows will look like this:
+Two and a half times what chance gives, at the smallest p 200 permutations
+can return. Only now is it worth reading further. Had the ratio been near 1,
+the rankings below would describe noise.
 
-| feature_id | name | rewiring_score | rewiring_fraction | Reference_only_edges | Case_only_edges | sign_switch_edges |
-| --- | --- | --- | --- | --- | --- | --- |
-| F007 | ADP | 4 | 1.0 | 3 | 1 | 0 |
-| F005 | adenosine | 3 | 1.0 | 3 | 0 | 0 |
-| F006 | AMP | 3 | 1.0 | 3 | 0 | 0 |
-| F008 | ATP | 3 | 1.0 | 3 | 0 | 0 |
+## Step 3: which metabolites rewired?
 
-Reading this table:
+Open `rewired_metabolites.csv`. One row per selected metabolite, sorted by
+`q_rewiring`: whether it carries more state-specific edges than chance.
 
-- **ADP (F007)** has the highest `rewiring_score` (4): it had 3 edges only in the reference network and 1 edge only in the case network. None of its connections are shared between groups.
-- **adenosine, AMP, ATP** each lost 3 reference-specific connections and gained none in the case group — the nucleotide energy module essentially disappeared in the case condition.
-- `rewiring_fraction = 1.0` for all top nodes means every single one of their connections changed state. These are not merely losing one edge; they are completely restructured.
-
-> **Biological hypothesis**: the loss of co-regulation among ATP, ADP, AMP and adenosine in the case group suggests disruption of energy charge homeostasis. These four metabolites normally track together through adenylate kinase and ATPases; when they decouple, it signals impaired energy buffering.
-
-## Step 4 — Compare the two state-specific networks
-
-Open the per-state networks in Cytoscape (or any GraphML viewer):
-
-- `results/example/network_Reference/network.graphml` — 9 nodes, 6 edges
-- `results/example/network_Case/network.graphml` — 9 nodes, 1 edge
-
-**Reference network**: ATP, ADP, AMP, and adenosine form a tight, fully connected module (community 1). The 6 edges reflect their co-regulation under normal energy metabolism.
-
-**Case network**: the nucleotide module has collapsed. Only one edge remains (ADP ↔ F021). The network is nearly star-free.
-
-This collapse is the core finding: the correlation structure that defines energy metabolism in the reference group is absent in the case group.
-
-## Step 5 — Check individual feature statistics
-
-Open `results/example/phenotype_selection/selected_pheno_features_with_direction.csv`.
-
-Key columns:
-
-| Column | Meaning |
-| --- | --- |
-| `r_pheno` | Spearman correlation with phenotype assignment (positive = higher in case) |
-| `q_pheno` | BH-corrected FDR q-value from permutation test |
-| `log2FC_case_vs_ref` | Mean(case) − Mean(ref) in log-scale; positive = up in case |
-| `direction` | `up_in_Case` or `up_in_Reference` |
-
-Example rows:
-
-| name | r_pheno | q_pheno | log2FC_case_vs_ref | direction |
+| rank | metabolites | `q_rewiring` | `selection_route` | what it is |
 | --- | --- | --- | --- | --- |
-| phenylalanine | +0.87 | 0.012 | +2.70 | up_in_Case |
-| adenosine | −0.76 | 0.012 | −1.53 | up_in_Reference |
-| ATP | −0.76 | 0.012 | −1.22 | up_in_Reference |
+| 1–10 | F001–F010 | 0.009 | both | lost their partners in case, and rose in abundance |
+| 11–18 | F021–F026, F028, F029 | 0.009 | connectivity | gained partners in case; abundance unchanged |
+| 19 | F013 | 0.09 | abundance | 7 state-specific edges against 3.8 expected: not significant |
+| 20– | the rest | ≥ 0.20 | | |
 
-Phenylalanine (F013) is strongly elevated in the case group. The nucleotide metabolites are elevated in the reference group.
+The 18 metabolites with `more_than_chance = True` are exactly the rewired ones
+in the design, and none of F011–F020 is among them. Their block has 26 shared
+edges but also 15 state-specific ones that crossed the edge threshold in one
+state and not the other by chance; the most affected, F013, stays above
+q = 0.05. This is exactly the error a raw count of state-specific edges makes,
+and what the null prevents. None of the background metabolites selected by
+chance is significant either (best: F052, q = 0.20).
 
-## Step 6 — Visualise in Cytoscape (optional)
+Within the significant metabolites, `rewiring_score` (state-specific plus
+sign-switching edges) and `rewiring_fraction` say how much of each one's
+neighbourhood changed.
 
-1. Open Cytoscape → File → Import → Network from File → select `results/example/triage/rewiring_network_phenotype.graphml`
-2. Style → Edge colour mapped to `state`:
-   - `Reference_only` → blue
-   - `Case_only` → red
-   - `shared` → grey
-3. Style → Node size mapped to `rewiring_score`
+## Step 4: which metabolites were selected, and how?
 
-The result will immediately show which metabolites are hubs of change.
+Open `selected_metabolites.csv`. 32 metabolites were selected; the column
+`selection_route` says why:
 
-## Summary of output files
+| route | metabolites | meaning |
+| --- | --- | --- |
+| `both` | F001–F010 | changed in abundance and in co-variation partners |
+| `abundance` | F011–F020, F038 | changed in abundance |
+| `connectivity` | F021–F026, F028, F029, F050, F052, F058 | changed partners; abundance unchanged |
 
+The `connectivity` route is what a differential-abundance analysis cannot give
+you. Compare F021 with F001:
+
+| metabolite | correlation with state | abundance q | log2 fold change | route | connectivity q |
+| --- | --- | --- | --- | --- | --- |
+| F001 | +0.68 | 0.003 | +1.12 | both | 0.012 |
+| F021 | −0.07 | 0.91 | −0.06 | connectivity | 0.020 |
+
+F021 has no abundance signal at all (q = 0.91), yet its partners changed.
+
+Four background metabolites (F038, F050, F052, F058) passed selection by
+chance, as expected at a 5% false-discovery rate; step 3 showed that none of
+them rewires. The statistics of all 60 metabolites, selected or not, are in
+`details/selection/`.
+
+## Step 5: the two networks
+
+`REPORT.md` has one line per network; the files are in
+`details/network_Reference/` and `details/network_Case/`.
+
+| network | nodes | edges | modularity | edges vs chance | modularity beyond degree sequence (ΔQ) |
+| --- | --- | --- | --- | --- | --- |
+| Reference | 32 | 81 | 0.50 | p = 0.005 | +0.33 |
+| Case | 32 | 57 | 0.50 | p = 0.005 | +0.30 |
+
+Both networks hold far more edges than metabolites without joint structure
+would give, and both are modular beyond what their degree sequence imposes
+(`null_model.csv`). Where the edges sit (`details/rewiring/edges.csv`, column
+`state`):
+
+| pair of blocks | reference only | case only | shared |
+| --- | --- | --- | --- |
+| F001–F010 among themselves | 43 | 0 | 0 |
+| F011–F020 among themselves | 12 | 3 | 26 |
+| F021–F030 among themselves | 0 | 27 | 0 |
+
+The first block lost its co-variation in the case state, the third gained it,
+and the second kept it.
+
+## Step 6: visualise (optional)
+
+Open `rewiring_network.graphml` in Cytoscape:
+
+1. File → Import → Network from File.
+2. Colour edges by `state` (`Reference_only`, `Case_only`, `shared`).
+3. Size nodes by `rewiring_score`, and highlight nodes with `more_than_chance`.
+
+## Step 7: annotation from a molecular network (optional)
+
+```bash
+phenorewire --config config_phenotype.yaml --run-2dnetwork
 ```
-results/example/
-├── triage/                          ← START HERE
-│   ├── final_report.md              ← narrative summary (this walkthrough refers to it)
-│   ├── priority_rewired_nodes.csv   ← top rewired metabolites
-│   ├── rewiring_summary.csv         ← one-row global stats
-│   └── rewiring_network_phenotype.graphml  ← open in Cytoscape
-│
-├── phenotype_selection/
-│   └── selected_pheno_features_with_direction.csv   ← per-feature stats + direction
-│
-├── network_Reference/               ← reference-group network (detail)
-├── network_Case/                    ← case-group network (detail)
-└── rewiring_pheno/                  ← full rewiring tables (detail)
+
+places the top rewired metabolites in the demo molecular network
+(`data/example_molecular_network.graphml`) and suggests annotations from their
+spectral neighbours; see `Reference_vs_Case/molecular_network/annotation_summary.csv`
+and [`interpret_2d_network.md`](../interpret_2d_network.md).
+
+## The temporal example
+
+```bash
+phenorewire --config config_temporal.yaml
 ```
 
-Files marked **detail** are for advanced users who want to inspect individual edges, community membership, or full node-metric tables.
+runs the same analysis on a synthetic time course: one group of 20 subjects,
+each sampled at 0, 4 and 10 h. Metabolites are selected by their association
+with time across all three timepoints; the two networks compare 0 h with 10 h.
+The blocks mirror the phenotype example (F001–F010 rise and lose their
+partners, F011–F020 fall and keep them, F021–F030 gain partners without
+changing in abundance), and the outputs are in
+`results/temporal_example/Exposed_0h_vs_10h/`:
+
+- `rewiring_vs_chance.csv`: 96 state-specific edges against 33.5 expected,
+  p = 0.005.
+- `rewired_metabolites.csv`: 17 metabolites rewire more than chance, nine of
+  F001–F010 and eight of F021–F030, the latter selected only by connectivity.
+  None of F011–F020 does, although their block has 30 edges present at one
+  timepoint only: sampling noise, which the null recognises.
+
+## Output files
+
+```text
+results/phenotype_example/
+├── REPORT.md                        start here
+├── Reference_vs_Case/
+│   ├── rewiring_vs_chance.csv       step 2: is there rewiring at all?
+│   ├── rewired_metabolites.csv      step 3: which metabolites rewired?
+│   ├── selected_metabolites.csv     step 4: what was selected, and how
+│   ├── rewiring_network.graphml     step 6: Cytoscape
+│   └── details/                     selection statistics, each network, every edge
+└── run_info/                        log, input check, configuration used
+```
+
+Every column is explained in [`reading_the_results.md`](../reading_the_results.md).

@@ -10,9 +10,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+import yaml
 
 from phenorewire.preprocessing import prepare_matrices
 from phenorewire.utils import assign_groups, median_normalize, save_json
+
+REPO = Path(__file__).resolve().parents[3]
 
 GROUPS = {"Reference": {"group_label": "reference"}, "Case": {"group_label": "case"}}
 
@@ -258,3 +261,72 @@ def test_save_json_survives_numpy_scalars(tmp_path: Path) -> None:
         "vector": [1, 2],
         "missing": None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Normalisation methods
+# ---------------------------------------------------------------------------
+
+def _diluted(sparse: bool = False) -> tuple[pd.DataFrame, np.ndarray]:
+    """One profile, measured in six samples at different dilutions."""
+    rng = np.random.default_rng(3)
+    profile = rng.lognormal(8, 1, size=40)
+    dilution = np.array([1.0, 0.5, 2.0, 0.8, 1.5, 3.0])
+    X = pd.DataFrame(np.outer(profile, dilution), columns=[f"S{i}" for i in range(6)])
+    if sparse:
+        # most features absent in the first three samples
+        X.iloc[:25, :3] = 0.0
+    return X, dilution
+
+
+def test_pqn_removes_dilution_even_in_sparse_samples() -> None:
+    from phenorewire.utils import median_normalize, pqn_normalize
+
+    for sparse in (False, True):
+        X, _ = _diluted(sparse)
+        out = pqn_normalize(X)
+        detected = X > 0
+        ratios = out.where(detected).div(out.where(detected).iloc[:, -1], axis=0).to_numpy()
+        # Undetected cells are NaN here. pandas 2 dropped them from stack(), pandas 3
+        # keeps them, so select the detected cells explicitly instead of relying on
+        # either, and check that none of them went missing.
+        finite = np.isfinite(ratios)
+        assert int(finite.sum()) == int(detected.to_numpy().sum())
+        np.testing.assert_allclose(ratios[finite], 1.0, rtol=1e-12)
+    # Where median normalisation cannot: those samples have median 0.
+    X, _ = _diluted(sparse=True)
+    assert (X.median(axis=0).iloc[:3] == 0).all()
+    np.testing.assert_allclose(median_normalize(X).iloc[:, :3].to_numpy(), X.iloc[:, :3].to_numpy())
+
+
+def test_tic_equalises_totals_and_none_changes_nothing() -> None:
+    from phenorewire.utils import NORMALIZERS
+
+    X, _ = _diluted()
+    totals = NORMALIZERS["tic"](X).sum(axis=0)
+    np.testing.assert_allclose(totals.to_numpy(), totals.iloc[0])
+    pd.testing.assert_frame_equal(NORMALIZERS["none"](X), X)
+
+
+def test_norm_method_none_only_log_transforms(tmp_path: Path) -> None:
+    df, meta = _feature_table(), _metadata()
+    X, _, _ = prepare_matrices(
+        df=df, meta=meta, feature_id_col="feature_id", mz_col="mz", rt_col="rt", name_col="name",
+        intensity_regex="^Sample_", meta_sample_col="sample_id", outdir=tmp_path,
+        min_nonzero_intensity=0.0, min_presence_global=0.0, norm_method="none", log_transform=True,
+        group_definition=GROUPS,
+    )
+    raw = df.set_index("feature_id").loc[X.index, X.columns].astype(float)
+    np.testing.assert_allclose(X.to_numpy(), np.log2(raw.to_numpy() + 1.0))
+
+
+def test_config_accepts_the_normalisation_methods(tmp_path: Path) -> None:
+    from phenorewire.config import LeanConfig
+
+    base = yaml.safe_load((REPO / "config_phenotype.yaml").read_text(encoding="utf-8"))
+    for key in ("DATA_MATRIX", "METADATA", "SPECREBOOT_NETWORK"):
+        base[key] = str(REPO / base[key])
+    for method in ("median", "PQN", "tic", "none"):
+        assert LeanConfig(**{**base, "NORM_METHOD": method}).NORM_METHOD == method.lower()
+    with pytest.raises(Exception, match="NORM_METHOD must be one of"):
+        LeanConfig(**{**base, "NORM_METHOD": "quantile"})

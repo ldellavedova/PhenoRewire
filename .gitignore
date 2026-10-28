@@ -66,6 +66,8 @@ data/*.csv
 data/*.tsv
 !data/feature_table.csv
 !data/metadata.csv
+!data/temporal_feature_table.csv
+!data/temporal_metadata.csv
 
 # Demo molecular network must stay tracked
 !data/example_molecular_network.graphml

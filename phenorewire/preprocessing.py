@@ -1,6 +1,6 @@
 # ── PhenoRewire · Step 1 — Preprocessing ─────────────────────────────────────
-# Filters features by global prevalence, applies median normalization across
-# samples, and log2(x+1) transforms intensities.
+# Filters features by global prevalence, normalizes each sample (NORM_METHOD:
+# median, PQN, TIC or none), and log2(x+1) transforms intensities.
 # Input: raw feature table + metadata. Output: filtered intensity matrix per group.
 from __future__ import annotations
 
@@ -11,9 +11,46 @@ from typing import Optional, Tuple, Dict, Any
 import pandas as pd
 import logging
 
-from .utils import ensure_dir, median_normalize, safe_log2p1, assign_groups
+from .utils import NORMALIZERS, ensure_dir, safe_log2p1, assign_groups
 
 logger = logging.getLogger(__name__)
+
+
+def extract_sample_name(intensity_col: str, intensity_regex: str) -> str:
+    """Sample name carried by an intensity column header."""
+    s = str(intensity_col).strip()
+    # If INTENSITY_REGEX matches at the end of the column name, strip that suffix.
+    m = re.search(intensity_regex, s)
+    if m and m.end() == len(s):
+        s = s[: m.start()].strip()
+    # Common fallbacks (MZmine-style)
+    for suffix in ["Peak area", "Peak height", "Area", "Height"]:
+        if s.endswith(suffix):
+            s = s[: -len(suffix)].strip()
+    # Remove trailing separators
+    s = re.sub(r"[:\-_\\s]+$", "", s).strip()
+    return s
+
+
+def norm_sample_id(x: str) -> str:
+    """Sample identifier with any path and raw-file extension removed."""
+    x = str(x).strip().replace("\\", "/")
+    x = x.split("/")[-1]  # drop path
+    # drop common extensions
+    for ext in [".mzML", ".mzml", ".mzXML", ".mzxml", ".raw", ".RAW"]:
+        if x.endswith(ext):
+            x = x[: -len(ext)]
+            break
+    return x.strip()
+
+
+def intensity_columns(df: pd.DataFrame, intensity_regex: str) -> list[str]:
+    return [c for c in df.columns if re.search(intensity_regex, str(c))]
+
+
+def matrix_sample_ids(intensity_cols: list[str], intensity_regex: str) -> list[str]:
+    """Sample IDs, in column order, as they are matched against the metadata."""
+    return [norm_sample_id(extract_sample_name(c, intensity_regex)) for c in intensity_cols]
 
 
 def prepare_matrices(
@@ -34,41 +71,16 @@ def prepare_matrices(
     group_definition: Dict[str, Dict[str, Any]],
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     ensure_dir(outdir)
-    logger.info("Preparing matrices...")
-
-    def extract_sample_name(intensity_col: str) -> str:
-        s = str(intensity_col).strip()
-        # If INTENSITY_REGEX matches at the end of the column name, strip that suffix.
-        m = re.search(intensity_regex, s)
-        if m and m.end() == len(s):
-            s = s[: m.start()].strip()
-        # Common fallbacks (MZmine-style)
-        for suffix in ["Peak area", "Peak height", "Area", "Height"]:
-            if s.endswith(suffix):
-                s = s[: -len(suffix)].strip()
-        # Remove trailing separators
-        s = re.sub(r"[:\-_\\s]+$", "", s).strip()
-        return s
-
-    def norm_sample_id(x: str) -> str:
-        x = str(x).strip().replace("\\", "/")
-        x = x.split("/")[-1]  # drop path
-        # drop common extensions
-        for ext in [".mzML", ".mzml", ".mzXML", ".mzxml", ".raw", ".RAW"]:
-            if x.endswith(ext):
-                x = x[: -len(ext)]
-                break
-        return x.strip()
+    logger.debug("Preparing matrices...")
 
     # -------------------------
     # Find intensity columns
     # -------------------------
-    intensity_cols = [c for c in df.columns if re.search(intensity_regex, str(c))]
+    intensity_cols = intensity_columns(df, intensity_regex)
     if not intensity_cols:
         raise ValueError("No intensity columns found. Check INTENSITY_REGEX or your column names.")
 
-    samples_in_matrix_raw = [extract_sample_name(c) for c in intensity_cols]
-    samples_in_matrix = [norm_sample_id(s) for s in samples_in_matrix_raw]
+    samples_in_matrix = matrix_sample_ids(intensity_cols, intensity_regex)
 
     # Build intensity matrix (features x samples)
     X = df[intensity_cols].copy()
@@ -86,7 +98,7 @@ def prepare_matrices(
     presence = (X > 0).mean(axis=1)
     keep = presence >= float(min_presence_global)
     X = X.loc[keep].copy()
-    logger.info("Global presence filter kept %d/%d features.", int(keep.sum()), int(len(keep)))
+    logger.debug("Global presence filter kept %d/%d features.", int(keep.sum()), int(len(keep)))
 
     # Which features carry no sample-to-sample information at all?  This has to be
     # judged on the raw intensities: median normalization multiplies each column by
@@ -100,10 +112,10 @@ def prepare_matrices(
     # Normalization deliberately still sees every feature, constant ones included:
     # the scale factors are what they have always been, so removing a constant
     # feature cannot shift the results of any other feature.
-    if norm_method.lower() == "median":
-        X = median_normalize(X)
-    else:
+    normalize = NORMALIZERS.get(norm_method.lower())
+    if normalize is None:
         raise ValueError(f"Unsupported norm_method: {norm_method}")
+    X = normalize(X)
 
     if log_transform:
         X = safe_log2p1(X)
@@ -184,9 +196,9 @@ def prepare_matrices(
             "Make sample IDs unique before running the pipeline."
         )
 
-    # Optional warning for extra metadata rows not used
+    # Extra metadata rows are reported to the user by the input check.
     if extra_in_meta:
-        logger.warning(
+        logger.debug(
             "Metadata contains %d samples not present in the matrix (ignored). Example: %s",
             len(set(extra_in_meta)),
             extra_in_meta[:10],
@@ -197,7 +209,7 @@ def prepare_matrices(
 
     # Assign groups
     meta2["group"] = assign_groups(meta2, group_definition)
-    meta2.to_csv(outdir / "metadata_aligned.csv", index=False)
+    meta2.to_csv(outdir / "samples.csv", index=False)
 
     # -------------------------
     # Validate required feature columns
@@ -251,6 +263,6 @@ def prepare_matrices(
 
     # Save diagnostics
     feat_anno.to_csv(outdir / "feature_annotation.csv")
-    X_feat_by_samp.to_csv(outdir / "X_corr_matrix.csv")
+    X_feat_by_samp.to_csv(outdir / "preprocessed_matrix.csv", index_label="feature_id")
 
     return X_feat_by_samp, meta2, feat_anno

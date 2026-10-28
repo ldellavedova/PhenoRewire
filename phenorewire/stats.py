@@ -60,12 +60,16 @@ def _permute_one_feature(
     return (float(r), p)
 
 
+PERMUTATION_STREAMS = ("per_feature", "shared")
+
+
 def spearman_permutation_test(
     mat: np.ndarray,
     target: np.ndarray,
     *,
     n_permutations: int,
     seed: int,
+    stream: str = "per_feature",
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Compute observed Spearman correlations and empirical p-values per feature.
@@ -81,6 +85,13 @@ def spearman_permutation_test(
 
     Rows containing NaN fall back to a per-feature ``spearmanr`` loop with
     pairwise deletion.  Constant rows return ``(nan, 1.0)``.
+
+    ``stream="shared"`` instead draws every permutation from one generator
+    seeded once with ``seed``, consumed feature by feature in row order and
+    skipping constant rows.  That is the scheme of the pre-release code
+    (before v0.1.0), kept so analyses run with it can be reproduced exactly.
+    The two streams are equally valid Monte Carlo estimates of the same
+    p-value; they differ only in which random permutations are drawn.
 
     Returns
     -------
@@ -98,6 +109,10 @@ def spearman_permutation_test(
         raise ValueError("n_permutations must be >= 10 for stability.")
     if np.isnan(y).any():
         raise ValueError("target contains NaN; drop or impute those samples first.")
+    if stream not in PERMUTATION_STREAMS:
+        raise ValueError(f"stream must be one of {PERMUTATION_STREAMS}, got {stream!r}.")
+    if stream == "shared":
+        return _spearman_permutation_test_shared(X, y, n_perm, int(seed))
 
     n_features, n_samples = X.shape
     r_obs = np.full(n_features, np.nan, dtype=float)
@@ -142,6 +157,51 @@ def spearman_permutation_test(
         )
 
     p_emp = np.where(np.isfinite(p_emp), p_emp, 1.0)
+    return r_obs, p_emp
+
+
+def _spearman_permutation_test_shared(
+    X: np.ndarray,
+    y: np.ndarray,
+    n_perm: int,
+    seed: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Permutation test drawing from one generator shared across features.
+
+    Reproduces the pre-release scheme: one ``default_rng(seed)``; features are
+    visited in row order; a constant or all-NaN row, or one whose observed rho
+    is not finite, draws nothing; every other row draws ``n_perm`` permutations
+    of the target in sequence.  Null correlations are computed on ranks, as in
+    the per-feature path.
+    """
+    n_features, n_samples = X.shape
+    r_obs = np.full(n_features, np.nan, dtype=float)
+    p_emp = np.ones(n_features, dtype=float)
+    rng = np.random.default_rng(seed)
+    y_rank_norm = _rank_normalize(rankdata(y))[0]
+
+    for idx in range(n_features):
+        x = X[idx]
+        if np.all(np.isnan(x)) or np.nanstd(x) == 0.0:
+            continue
+        if np.isnan(x).any():
+            r, _ = spearmanr(x, y, nan_policy="omit")
+            if not np.isfinite(r):
+                continue
+            r_perm = np.empty(n_perm, dtype=float)
+            for j in range(n_perm):
+                rp, _ = spearmanr(x, rng.permutation(y), nan_policy="omit")
+                r_perm[j] = abs(float(rp)) if np.isfinite(rp) else 0.0
+        else:
+            x_rank_norm = _rank_normalize(rankdata(x))[0]
+            r = float(x_rank_norm @ y_rank_norm)
+            perms = np.empty((n_perm, n_samples), dtype=float)
+            for j in range(n_perm):
+                perms[j] = rng.permutation(y_rank_norm)
+            r_perm = np.abs(perms @ x_rank_norm)
+        r_obs[idx] = float(r)
+        p_emp[idx] = (float(np.sum(r_perm >= abs(float(r)) - _TIE_TOL)) + 1.0) / (float(n_perm) + 1.0)
+
     return r_obs, p_emp
 
 

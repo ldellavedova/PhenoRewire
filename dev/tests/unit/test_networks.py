@@ -207,3 +207,15 @@ def test_louvain_stability_empty_graph() -> None:
     meta = check_louvain_stability(None, n_runs=5, base_seed=42)
     assert meta["stable"] is True
     assert meta["warning"] is None
+
+
+def test_network_metrics_accept_feature_table_without_columns():
+    """A selection reduced to its index must keep its nodes."""
+    import pandas as pd
+    from phenorewire.networks import compute_network_metrics
+
+    nodes = pd.DataFrame(index=pd.Index(["a", "b", "c", "d", "e"], name="feature_id"))
+    edges = pd.DataFrame({"node_a": ["a"], "node_b": ["b"], "r": [0.9], "q": [0.01], "sign": ["pos"]})
+    annotated, _, summary = compute_network_metrics(nodes, edges, seed=0)
+    assert int(summary.iloc[0]["n_nodes"]) == 5
+    assert annotated.loc["a", "degree"] == 1 and annotated.loc["e", "degree"] == 0
